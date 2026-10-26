@@ -1,43 +1,34 @@
-//
-//  SparkUITests.swift
-//  SparkUITests
-//
-//  Created by Lucas Larangeira on 26/10/26.
-//
-
 import XCTest
 
 final class SparkUITests: XCTestCase {
-
-    override func setUpWithError() throws {
-        // Put setup code here. This method is called before the invocation of each test method in the class.
-
-        // In UI tests it is usually best to stop immediately when a failure occurs.
-        continueAfterFailure = false
-
-        // In UI tests it’s important to set the initial state - such as interface orientation - required for your tests before they run. The setUp method is a good place to do this.
-    }
-
-    override func tearDownWithError() throws {
-        // Put teardown code here. This method is called after the invocation of each test method in the class.
-    }
-
     @MainActor
-    func testExample() throws {
-        // UI tests must launch the application that they test.
+    func testTabsFocusSettingsAndRealShell() throws {
+        continueAfterFailure = false
         let app = XCUIApplication()
         app.launch()
-
-        // Use XCTAssert and related functions to verify your tests produce the correct results.
-        // XCUIAutomation Documentation
-        // https://developer.apple.com/documentation/xcuiautomation
-    }
-
-    @MainActor
-    func testLaunchPerformance() throws {
-        // This measures how long it takes to launch your application.
-        measure(metrics: [XCTApplicationLaunchMetric()]) {
-            XCUIApplication().launch()
-        }
+        XCTAssertTrue(app.buttons["newTab"].waitForExistence(timeout: 10))
+        app.typeText("printf 'SPARK_UI_%s\\n' PROOF\n")
+        let output = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS 'SPARK_UI_PROOF'"), object: app.textViews["Terminal"])
+        XCTAssertEqual(XCTWaiter.wait(for: [output], timeout: 5), .completed)
+        app.typeKey("t", modifierFlags: .command)
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Select '")).count, 2)
+        app.typeKey("[", modifierFlags: [.command, .shift])
+        app.typeKey("f", modifierFlags: [.command, .shift])
+        XCTAssertTrue(app.buttons["Leave focus mode"].waitForExistence(timeout: 3))
+        app.buttons["Leave focus mode"].click()
+        app.typeKey(",", modifierFlags: .command)
+        XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 3))
+        app.buttons["Done"].click()
+        app.typeKey("w", modifierFlags: .command)
+        XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 3))
+        app.buttons["Cancel"].click()
+        XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Select '")).count, 2)
+        // Exit both login shells cleanly, then close their tabs without a confirmation.
+        app.typeText("exit\n")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Exited · 0'")).firstMatch.waitForExistence(timeout: 5))
+        app.typeKey("w", modifierFlags: .command)
+        app.typeText("exit\n")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Exited · 0'")).firstMatch.waitForExistence(timeout: 5))
+        app.typeKey("w", modifierFlags: .command)
     }
 }

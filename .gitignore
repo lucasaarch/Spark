@@ -1,0 +1,14 @@
+# Local Xcode state
+.DS_Store
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+.build/
+*.xcresult
+# Signing material
+*.p12
+*.p8
+*.pem
+*.key
+.env*
