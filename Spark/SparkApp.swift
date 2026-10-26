@@ -5,6 +5,10 @@ import Sparkle
 @main
 struct SparkApp {
     @MainActor static func main() {
+        if CommandLine.arguments.dropFirst().first == "--claude-status" {
+            ClaudeStatusBridge.run()
+            return
+        }
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate

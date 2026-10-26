@@ -14,6 +14,13 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
     @Published private(set) var status: Status = .ready
     @Published private(set) var agent: AgentActivity?
     @Published var showsAgentDetails = false
+    @Published private(set) var metrics: AgentMetrics?
+    @Published private(set) var hasMetricsIntegration = false
+    private var integration: AgentShellIntegration?
+    private var metricsTask: Task<Void, Never>?
+    private var integratedProvider: AgentActivity.Provider?
+    private var claudeMetricsFile: URL?
+    private var integrationObservation: TerminalOscObservation?
 
     enum Status: Equatable {
         case ready, running, exited(Int32?), failed
@@ -27,15 +34,23 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
         }
     }
 
-    init(directory: URL = FileManager.default.homeDirectoryForCurrentUser) {
+    init(directory: URL = FileManager.default.homeDirectoryForCurrentUser, shell: String? = nil) {
         self.directory = directory
-        shell = Self.loginShell()
-        title = URL(fileURLWithPath: shell).lastPathComponent
+        self.shell = shell ?? Self.loginShell()
+        title = URL(fileURLWithPath: self.shell).lastPathComponent
         var options = TerminalOptions.default
         options.scrollback = 10_000
         options.termName = "xterm-256color"
         terminal = SparkTerminalView(frame: NSRect(x: 0, y: 0, width: 900, height: 560), options: options)
         terminal.processDelegate = self
+        integrationObservation = terminal.observeOscEvents { [weak self] event in
+            guard [0, 2, 9001].contains(event.code), event.payload.count <= 2048 else { return }
+            let message = String(decoding: event.payload, as: UTF8.self)
+            DispatchQueue.main.async { [weak self] in
+                if event.code == 9001 { self?.receiveIntegration(message) }
+                else { self?.receiveMetricsTitle(message) }
+            }
+        }
         terminal.setAccessibilityLabel("Terminal")
         terminal.nativeBackgroundColor = NSColor(srgbRed: 0.055, green: 0.063, blue: 0.078, alpha: 1)
         terminal.nativeForegroundColor = NSColor(srgbRed: 0.84, green: 0.86, blue: 0.90, alpha: 1)
@@ -70,7 +85,7 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
         return environment.map { "\($0.key)=\($0.value)" }.sorted()
     }
 
-    func start() {
+    func start(environment inherited: [String: String] = ProcessInfo.processInfo.environment) {
         guard status == .ready else { return }
         // Configure the GPU surface only after AppKit has attached the view.
         // SwiftTerm owns frame scheduling and falls back to Core Graphics if unavailable.
@@ -79,7 +94,17 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
             catch { NSLog("Spark: Metal renderer unavailable; using Core Graphics: %@", String(describing: error)) }
         }
         status = .running
-        terminal.startProcess(executable: shell, environment: Self.environment(),
+        var environment = inherited
+        if URL(fileURLWithPath: shell).lastPathComponent == "zsh", let executable = Bundle.main.executablePath {
+            do {
+                let integration = try AgentShellIntegration()
+                self.integration = integration
+                environment = integration.environment(inherited: environment, executable: executable)
+            } catch {
+                NSLog("Spark: agent shell integration unavailable: %@", error.localizedDescription)
+            }
+        }
+        terminal.startProcess(executable: shell, environment: Self.environment(inherited: environment),
                               execName: "-" + URL(fileURLWithPath: shell).lastPathComponent,
                               currentDirectory: directory.path)
     }
@@ -89,26 +114,50 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
         terminal.terminate()
     }
 
-    /// Paste only a fixed, provider-specific command, never a newline or a
-    /// control sequence that clears the user's draft or approves a tool call.
-    @discardableResult
-    func insertAgentCommand(_ command: AgentActivity.Command) -> Bool {
-        guard terminal.process.running, let agent, agent.acceptsCommands else { return false }
-        terminal.pasteText(command.text(for: agent.provider))
-        showsAgentDetails = false
-        terminal.window?.makeFirstResponder(terminal)
-        return true
-    }
-
     func programStatusChanged(source: TerminalView, records: [TerminalProgramStatus]) {
         guard terminal.process.running else { clearAgent(); return }
-        agent = AgentActivity(records: records)
-        if agent == nil { showsAgentDetails = false }
+        guard let next = AgentActivity(records: records) else {
+            // A client may clear status during startup, before its first report.
+            if agent != nil { clearAgent() }
+            return
+        }
+        if next.provider != agent?.provider {
+            if integratedProvider != next.provider { resetMetrics() }
+            title = metrics?.sessionTitle ?? next.provider.name
+        }
+        agent = next
     }
 
     private func clearAgent() {
         agent = nil
         showsAgentDetails = false
+        resetMetrics()
+    }
+
+    private func resetMetrics() {
+        metricsTask?.cancel()
+        metricsTask = nil
+        metrics = nil
+        hasMetricsIntegration = false
+        integratedProvider = nil
+        claudeMetricsFile = nil
+    }
+
+    private func watchClaudeMetrics(_ file: URL) {
+        metricsTask?.cancel()
+        metricsTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard self != nil else { return }
+                let value = await Task.detached(priority: .utility) { ClaudeStatusBridge.read(file) }.value
+                guard !Task.isCancelled else { return }
+                if let self, self.claudeMetricsFile == file, self.agent?.provider == .claude,
+                   let value, self.metrics != value {
+                    self.metrics = value
+                    self.title = value.sessionTitle ?? "Claude Code"
+                }
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            }
+        }
     }
 
     func applyPreferences() {
@@ -122,8 +171,51 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
         Task { @MainActor [weak self] in self?.dimensions = "\(newCols) × \(newRows)" }
     }
 
+    private func receiveIntegration(_ message: String) {
+        guard terminal.process.running else { return }
+        if message == "SparkAgent:end" { clearAgent(); return }
+        if message == "SparkAgent:codex" {
+            resetMetrics()
+            integratedProvider = .codex
+            hasMetricsIntegration = true
+            self.title = "Codex"
+            return
+        }
+        if message.hasPrefix("SparkAgent:claude:"),
+           let invocation = UUID(uuidString: String(message.dropFirst("SparkAgent:claude:".count))),
+           let integration {
+            resetMetrics()
+            integratedProvider = .claude
+            hasMetricsIntegration = true
+            self.title = "Claude Code"
+            let file = integration.directory.appendingPathComponent(invocation.uuidString + ".json")
+            claudeMetricsFile = file
+            watchClaudeMetrics(file)
+        }
+    }
+
+    private func receiveMetricsTitle(_ title: String) {
+        guard terminal.process.running else { return }
+        if integratedProvider == .codex, let metrics = AgentMetrics.codex(title: title) {
+            integratedProvider = .codex
+            hasMetricsIntegration = true
+            self.metrics = metrics
+            self.title = metrics.sessionTitle ?? "Codex"
+            return
+        }
+    }
+
     func setTerminalTitle(source: LocalProcessTerminalView, title: String) {
-        self.title = String(title.prefix(160))
+        // Usage titles are handled in parser order with the integration marker,
+        // instead of SwiftTerm's intentionally coalesced title callback.
+        if AgentMetrics.codex(title: title) != nil { return }
+        let value = AgentMetrics.clean(title)
+        if agent?.provider == .codex,
+           value == nil || value == directory.lastPathComponent || value == "codex" {
+            self.title = "Codex"
+        } else {
+            self.title = value ?? agent?.provider.name ?? URL(fileURLWithPath: shell).lastPathComponent
+        }
     }
 
     func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {

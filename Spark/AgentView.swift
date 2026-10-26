@@ -69,35 +69,94 @@ private struct AgentDetails: View {
                 }
                 Divider()
                 Text("CONTEXT & USAGE").font(.system(size: 9, weight: .semibold)).tracking(1.4).foregroundStyle(.secondary)
-                VStack(spacing: 10) {
-                    ForEach(AgentActivity.Command.allCases, id: \.self) { command in
-                        Button { session.insertAgentCommand(command) } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: command.icon).font(.system(size: 17)).frame(width: 24).foregroundStyle(agent.color)
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(command.title).font(.system(size: 12, weight: .semibold))
-                                    Text(command.detail(for: agent.provider))
-                                        .font(.system(size: 10)).foregroundStyle(.secondary)
-                                }
-                                Spacer(minLength: 4)
-                                Text(command.text(for: agent.provider))
-                                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
-                            }
-                            .padding(12).contentShape(Rectangle())
-                            .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 9))
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(!agent.acceptsCommands)
-                        .accessibilityLabel("Insert \(command.text(for: agent.provider)): \(command.title)")
-                        .help("Insert \(command.text(for: agent.provider)) into the current prompt")
-                    }
+                if let metrics = session.metrics {
+                    AgentMetricsView(metrics: metrics, provider: agent.provider, color: agent.color)
+                } else {
+                    Label(session.hasMetricsIntegration ? "Waiting for session metrics" : "Metrics not connected", systemImage: "chart.bar.xaxis")
+                        .font(.callout).foregroundStyle(.secondary)
+                    Text(session.hasMetricsIntegration
+                         ? "Figures appear when the CLI reports them. Unavailable values are never treated as zero."
+                         : "Open a new zsh tab in Spark and launch codex or claude to connect live metrics. Existing custom shell aliases and functions are preserved.")
+                        .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
-                Text(agent.acceptsCommands
-                     ? "Inserts at the cursor without sending. Use an empty prompt, then press Return to view the CLI’s own figures."
-                     : "Return to the agent’s prompt to use these shortcuts. Context and usage are displayed by the CLI.")
-                    .font(.system(size: 11)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             .padding(22).frame(width: 380).preferredColorScheme(.dark)
         }
+    }
+}
+
+private struct AgentMetricsView: View {
+    let metrics: AgentMetrics
+    let provider: AgentActivity.Provider
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            row("Model", metrics.model)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Context").foregroundStyle(.secondary)
+                    Spacer()
+                    if let percent = metrics.contextPercent {
+                        Text("\(percent, specifier: "%.1f")% used").monospacedDigit()
+                    } else { Text("Not reported").foregroundStyle(.tertiary) }
+                }
+                if let percent = metrics.contextPercent {
+                    ProgressView(value: percent, total: 100).tint(percent >= 85 ? .orange : color)
+                }
+                if let window = metrics.contextWindow {
+                    Text("\(window.formatted()) token window").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            HStack(spacing: 10) {
+                tokenCard("Input tokens", metrics.inputTokens)
+                tokenCard("Output tokens", metrics.outputTokens)
+            }
+            Text(provider == .claude ? "Tokens in the current context, from the latest response." : "Session totals, rounded by Codex.")
+                .font(.system(size: 10)).foregroundStyle(.secondary)
+            if provider == .claude {
+                row("Estimated session cost", metrics.costUSD.map { String(format: "$%.4f", $0) })
+            }
+            if metrics.limits.isEmpty {
+                row("Plan limits", nil)
+            } else {
+                ForEach(metrics.limits, id: \.name) { limit in
+                    VStack(alignment: .leading, spacing: 6) {
+                        if let used = limit.usedPercent {
+                            row(limit.name, String(format: "%.1f%% used", used))
+                            ProgressView(value: used, total: 100).tint(used >= 85 ? .orange : color)
+                        } else { row(limit.name, limit.detail) }
+                        if let reset = limit.resetsAt {
+                            Text("Resets \(reset, style: .relative)")
+                                .font(.system(size: 10)).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+            HStack(spacing: 4) {
+                Circle().fill(color).frame(width: 4, height: 4)
+                Text("Updated")
+                Text(metrics.updatedAt, style: .time)
+                Spacer()
+                Text("Reported by \(provider.name)")
+            }.font(.system(size: 9)).foregroundStyle(.tertiary)
+        }.font(.system(size: 12))
+    }
+
+    private func row(_ label: String, _ value: String?) -> some View {
+        HStack(alignment: .firstTextBaseline) {
+            Text(label).foregroundStyle(.secondary)
+            Spacer(minLength: 12)
+            Text(verbatim: value ?? "Not reported").multilineTextAlignment(.trailing)
+                .foregroundStyle(value == nil ? .tertiary : .primary).textSelection(.enabled)
+        }
+    }
+
+    private func tokenCard(_ title: String, _ value: String?) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(title).font(.system(size: 10)).foregroundStyle(.secondary)
+            Text(value ?? "—").font(.system(size: 19, weight: .medium, design: .rounded)).monospacedDigit()
+        }.frame(maxWidth: .infinity, alignment: .leading).padding(12)
+            .background(color.opacity(0.06), in: RoundedRectangle(cornerRadius: 9))
     }
 }

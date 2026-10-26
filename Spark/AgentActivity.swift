@@ -18,37 +18,12 @@ struct AgentActivity: Equatable {
         var name: String { self == .codex ? "Codex" : "Claude Code" }
     }
 
-    enum Command: CaseIterable {
-        case context, usage
-
-        var title: String { self == .context ? "Context" : "Usage" }
-        var icon: String { self == .context ? "square.stack.3d.up" : "chart.bar.xaxis" }
-
-        func text(for provider: Provider) -> String {
-            switch (self, provider) {
-            case (.context, .codex): "/status"
-            case (.context, .claude): "/context"
-            case (.usage, _): "/usage"
-            }
-        }
-
-        func detail(for provider: Provider) -> String {
-            switch (self, provider) {
-            case (.context, .codex): "Session configuration and context usage"
-            case (.context, .claude): "See what is filling the context window"
-            case (.usage, .codex): "Account token activity and usage options"
-            case (.usage, .claude): "Session cost, plan limits and activity"
-            }
-        }
-    }
-
     let provider: Provider
     let state: TerminalProgramStatusState
     let kind: TerminalProgramStatusKind?
     let progress: Int?
     let title: String?
     let message: String?
-    let acceptsCommands: Bool
 
     init?(records: [TerminalProgramStatus]) {
         // Both clients report a root record. A child alone must not turn the
@@ -67,8 +42,6 @@ struct AgentActivity: Equatable {
         progress = report.progress
         title = Self.visibleText(report.title)
         message = Self.visibleText(report.message)
-        acceptsCommands = (root.state == .idle || root.state == .done)
-            && !relevant.contains { $0.state == .working || $0.state == .blocked || $0.state == .error }
     }
 
     var label: String {
