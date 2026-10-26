@@ -61,6 +61,63 @@ struct LaunchCompatibilityTests {
         #expect(!reopened.shouldCascadeWindows)
     }
 
+    @Test func restoredWindowFitsTerminalGridBeforeAnyManualResize() async throws {
+        let name = "SparkGridTest-" + UUID().uuidString
+        let first = TerminalWindowController(frameName: name)
+        let saved = try #require(first.window)
+        saved.setFrame(NSRect(x: 30, y: 30, width: 1400, height: 900), display: false)
+        first.close()
+        let reopened = TerminalWindowController(frameName: name)
+        let window = try #require(reopened.window)
+        let session = try #require(reopened.workspace.selected)
+        defer {
+            reopened.workspace.stopAll()
+            reopened.close()
+            saved.setFrameAutosaveName("")
+            window.setFrameAutosaveName("")
+            NSWindow.removeFrame(usingName: name)
+        }
+        reopened.showWindow(nil)
+        try await wait { session.terminal.process.running }
+        try await Task.sleep(for: .milliseconds(500))
+        let terminal = session.terminal
+        let host = try #require(terminal.superview)
+        let grid = terminal.getOptimalFrameSize().size
+        #expect(abs(terminal.frame.width - host.bounds.width) < 1)
+        #expect(abs(terminal.frame.height - host.bounds.height) < 1)
+        #expect(abs(grid.width - terminal.bounds.width) < 20)
+        #expect(abs(grid.height - terminal.bounds.height) < 30)
+    }
+
+    @Test func backingScaleChangeDoesNotReapplyAnOlderGridAfterLayout() async throws {
+        let window = ScaleWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 740), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let session = TerminalSession(shell: "/bin/sh")
+        defer { session.stop(); window.close() }
+        window.contentView = session.terminal
+        session.start()
+        window.orderBack(nil)
+        // Moving to a Retina screen queues a resize. Restoring a larger
+        // frame before the next Metal frame must supersede that old grid.
+        window.testScale = 2
+        session.terminal.viewDidChangeBackingProperties()
+        window.setContentSize(NSSize(width: 1400, height: 900))
+        try await Task.sleep(for: .milliseconds(500))
+        let terminal = session.terminal
+        let grid = terminal.getOptimalFrameSize().size
+        #expect(abs(grid.width - terminal.bounds.width) < 20)
+        #expect(abs(grid.height - terminal.bounds.height) < 30)
+        let dimensions = terminal.terminalDimensions
+        terminal.send(data: Array("printf 'PTY_SIZE:'; stty size\n".utf8)[...])
+        try await wait { output(session).contains("PTY_SIZE:\(dimensions.rows) \(dimensions.cols)") }
+        #expect(session.dimensions == "\(dimensions.cols) × \(dimensions.rows)")
+    }
+
+    private class ScaleWindow: NSWindow {
+        var testScale: CGFloat = 1
+        override var backingScaleFactor: CGFloat { testScale }
+    }
+
     private func output(_ session: TerminalSession) -> String {
         String(decoding: session.terminal.getBufferAsData(), as: UTF8.self)
     }

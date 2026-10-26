@@ -167,8 +167,18 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
     }
 
     func sizeChanged(source: LocalProcessTerminalView, newCols: Int, newRows: Int) {
-        // Resize callbacks can arrive while SwiftUI is laying out its NSView.
-        Task { @MainActor [weak self] in self?.dimensions = "\(newCols) × \(newRows)" }
+        // SwiftTerm 1.99.1 can apply a queued backing-scale resize after a
+        // newer AppKit layout. Reconcile on the next main turn, outside layout
+        // and live dragging, using SwiftTerm's own grid/PTY sizing path.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if source.window != nil, !source.inLiveResize,
+               source.frame.width > 0, source.frame.height > 0 {
+                source.setFrameSize(source.frame.size)
+            }
+            let size = source.terminalDimensions
+            self.dimensions = "\(size.cols) × \(size.rows)"
+        }
     }
 
     private func receiveIntegration(_ message: String) {

@@ -20,8 +20,8 @@ struct AgentBadge: View {
             Button { session.showsAgentDetails.toggle() } label: {
                 HStack(spacing: 7) {
                     Image(systemName: agent.icon)
-                    if let used = session.metrics?.contextPercent {
-                        Text("\(100 - used, specifier: "%.0f")% usage left").fontWeight(.semibold).monospacedDigit()
+                    if let remaining = session.metrics?.limitingUsage?.remainingPercent {
+                        Text("\(remaining, specifier: "%.0f")% usage left").fontWeight(.semibold).monospacedDigit()
                     } else {
                         Text("Usage not reported").fontWeight(.semibold)
                     }
@@ -34,9 +34,9 @@ struct AgentBadge: View {
                 .overlay(Capsule().strokeBorder(agent.color.opacity(0.2)))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(agent.provider.name), \(agent.label). \(session.metrics?.contextPercent.map { String(format: "%.0f%% context remaining", 100 - $0) } ?? "Usage not reported"). Context and usage")
+            .accessibilityLabel("\(agent.provider.name), \(agent.label). \(session.metrics?.limitingUsage?.remainingPercent.map { String(format: "%.0f%% usage left", $0) } ?? "Usage not reported"). Context and usage")
             .accessibilityIdentifier("agentDetails")
-            .help("\(agent.provider.name) · \(agent.label). Remaining session context; click for usage details.")
+            .help("\(agent.provider.name) · \(agent.label). \(session.metrics?.limitingUsage?.name ?? "Account usage not reported"); click for usage details.")
             .popover(isPresented: $session.showsAgentDetails, arrowEdge: .bottom) {
                 AgentDetails(session: session).id(session.id)
             }
@@ -124,7 +124,9 @@ private struct AgentMetricsView: View {
             } else {
                 ForEach(metrics.limits, id: \.name) { limit in
                     VStack(alignment: .leading, spacing: 6) {
-                        if let used = limit.usedPercent {
+                        if let detail = limit.detail {
+                            row(limit.name, detail)
+                        } else if let used = limit.usedPercent {
                             row(limit.name, String(format: "%.1f%% used", used))
                             ProgressView(value: used, total: 100).tint(used >= 85 ? .orange : color)
                         } else { row(limit.name, limit.detail) }

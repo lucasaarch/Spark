@@ -8,6 +8,10 @@ struct AgentMetrics: Codable, Equatable, Sendable {
         let usedPercent: Double?
         let detail: String?
         let resetsAt: Date?
+
+        var remainingPercent: Double? {
+            AgentMetrics.percentage(usedPercent).map { 100 - $0 }
+        }
     }
 
     var model: String?
@@ -19,6 +23,13 @@ struct AgentMetrics: Codable, Equatable, Sendable {
     var costUSD: Double?
     var limits: [Limit] = []
     var updatedAt = Date()
+
+    /// The first allowance the account would exhaust, independent of context.
+    var limitingUsage: Limit? {
+        limits.filter { $0.remainingPercent != nil }.min {
+            $0.remainingPercent! < $1.remainingPercent!
+        }
+    }
 
     /// Spark configures fixed slots separated by the client's supported
     /// `app-name` title item. Empty values keep their slot. Only terminated
@@ -43,8 +54,12 @@ struct AgentMetrics: Codable, Equatable, Sendable {
         if let output = slot(4), output.hasSuffix(" out") { result.outputTokens = clean(String(output.dropLast(4))) }
         for (index, name) in [(5, "5-hour limit"), (6, "Weekly limit")] {
             if let detail = slot(index) {
-                // Keep the CLI's exact label and remaining/used semantics.
-                result.limits.append(Limit(name: name, usedPercent: nil, detail: detail, resetsAt: nil))
+                // Native Codex limit items end in "<percent>% left". Keep the
+                // original display text while normalizing account allowance.
+                let remaining = detail.hasSuffix("% left")
+                    ? percentage(detail.dropLast(6).split(separator: " ").last.flatMap { Double($0) })
+                    : nil
+                result.limits.append(Limit(name: name, usedPercent: remaining.map { 100 - $0 }, detail: detail, resetsAt: nil))
             }
         }
         return result
