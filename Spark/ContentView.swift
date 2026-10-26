@@ -82,18 +82,28 @@ private struct SessionTab: View {
         HStack(spacing: 9) {
             Button(action: select) {
                 HStack(spacing: 9) {
-                    Image(systemName: "terminal").foregroundStyle(selected ? ember : .secondary)
-                    Text(session.title).lineLimit(1).truncationMode(.middle).frame(maxWidth: 160, alignment: .leading)
+                    Image(systemName: session.agent?.icon ?? "terminal")
+                        .foregroundStyle(session.agent?.color ?? (selected ? ember : .secondary))
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(session.title).lineLimit(1).truncationMode(.middle)
+                        if let agent = session.agent {
+                            Text("\(agent.provider.name) · \(agent.label)")
+                                .font(.system(size: 9, weight: .medium)).foregroundStyle(agent.color).lineLimit(1)
+                        }
+                    }.frame(maxWidth: 180, alignment: .leading)
                 }.padding(.vertical, 10).padding(.leading, 12)
-            }.buttonStyle(.plain).accessibilityLabel("Select \(session.title)")
+            }.buttonStyle(.plain).accessibilityLabel("Select \(session.title)\(session.agent.map { ", \($0.provider.name), \($0.label)" } ?? "")")
             Button(action: close) {
                 Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)).frame(width: 22, height: 24)
             }.buttonStyle(ChromeButtonStyle()).help("Close tab").accessibilityLabel("Close \(session.title)")
                 .padding(.trailing, 5)
         }
         .font(.system(size: 12, weight: selected ? .medium : .regular))
-        .background(selected ? .white.opacity(0.07) : .white.opacity(0.025), in: RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(selected ? ember.opacity(0.25) : .white.opacity(0.04)))
+        .background(session.agent?.color.opacity(selected ? 0.12 : 0.055)
+                    ?? .white.opacity(selected ? 0.07 : 0.025), in: RoundedRectangle(cornerRadius: 9))
+        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(session.agent?.color.opacity(selected ? 0.5 : 0.22)
+                    ?? (selected ? ember.opacity(0.25) : .white.opacity(0.04))))
+        .help(session.agent.map { "\($0.provider.name) · \($0.label)" } ?? session.title)
     }
 }
 
@@ -107,8 +117,12 @@ private struct SessionView: View {
                 Image(systemName: "folder").foregroundStyle(ember.opacity(0.8))
                 Text(shortPath).lineLimit(1).truncationMode(.middle)
                 Spacer()
-                Text(URL(fileURLWithPath: session.shell).lastPathComponent)
-                Text("/ login").foregroundStyle(.tertiary)
+                if session.agent != nil {
+                    AgentBadge(session: session)
+                } else {
+                    Text(URL(fileURLWithPath: session.shell).lastPathComponent)
+                    Text("/ login").foregroundStyle(.tertiary)
+                }
                 if workspace.focusMode {
                     Button { workspace.focusMode = false } label: { Image(systemName: "arrow.down.right.and.arrow.up.left") }
                         .buttonStyle(.plain).help("Leave focus mode · ⇧⌘F").accessibilityLabel("Leave focus mode")
@@ -133,8 +147,9 @@ private struct SessionView: View {
         .padding(.top, workspace.focusMode ? 8 : 0)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack(spacing: 8) {
-                Circle().fill(session.status == .running ? Color.green.opacity(0.7) : ember).frame(width: 5, height: 5)
-                Text(session.status.label)
+                Circle().fill(session.agent?.color ?? (session.status == .running ? Color.green.opacity(0.7) : ember))
+                    .frame(width: 5, height: 5)
+                Text(session.agent.map { "\($0.provider.name) · \($0.label)" } ?? session.status.label)
                 Text("·").foregroundStyle(.quaternary)
                 Text(session.dimensions).monospacedDigit()
                 Spacer()

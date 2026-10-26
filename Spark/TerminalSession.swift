@@ -12,6 +12,8 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
     @Published var directory: URL
     @Published var dimensions = ""
     @Published private(set) var status: Status = .ready
+    @Published private(set) var agent: AgentActivity?
+    @Published var showsAgentDetails = false
 
     enum Status: Equatable {
         case ready, running, exited(Int32?), failed
@@ -83,7 +85,30 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
     }
 
     func stop() {
+        clearAgent()
         terminal.terminate()
+    }
+
+    /// Paste only a fixed, provider-specific command, never a newline or a
+    /// control sequence that clears the user's draft or approves a tool call.
+    @discardableResult
+    func insertAgentCommand(_ command: AgentActivity.Command) -> Bool {
+        guard terminal.process.running, let agent, agent.acceptsCommands else { return false }
+        terminal.pasteText(command.text(for: agent.provider))
+        showsAgentDetails = false
+        terminal.window?.makeFirstResponder(terminal)
+        return true
+    }
+
+    func programStatusChanged(source: TerminalView, records: [TerminalProgramStatus]) {
+        guard terminal.process.running else { clearAgent(); return }
+        agent = AgentActivity(records: records)
+        if agent == nil { showsAgentDetails = false }
+    }
+
+    private func clearAgent() {
+        agent = nil
+        showsAgentDetails = false
     }
 
     func applyPreferences() {
@@ -108,8 +133,14 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
         self.directory = url
     }
 
-    func processTerminated(source: TerminalView, exitCode: Int32?) { status = .exited(exitCode) }
-    func processFailedToStart(source: TerminalView, error: LocalProcessError) { status = .failed }
+    func processTerminated(source: TerminalView, exitCode: Int32?) {
+        clearAgent()
+        status = .exited(exitCode)
+    }
+    func processFailedToStart(source: TerminalView, error: LocalProcessError) {
+        clearAgent()
+        status = .failed
+    }
 
     private static let palette: [UInt32] = [
         0x20232D, 0xF08080, 0xA8CC8C, 0xEBCB8B, 0x8EBCED, 0xC5A1DE, 0x8BD5CA, 0xD8DEE9,
