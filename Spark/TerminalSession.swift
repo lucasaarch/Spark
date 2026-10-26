@@ -70,6 +70,12 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
 
     func start() {
         guard status == .ready else { return }
+        // Configure the GPU surface only after AppKit has attached the view.
+        // SwiftTerm owns frame scheduling and falls back to Core Graphics if unavailable.
+        if terminal.window != nil {
+            do { try terminal.setUseMetal(true) }
+            catch { NSLog("Spark: Metal renderer unavailable; using Core Graphics: %@", String(describing: error)) }
+        }
         status = .running
         terminal.startProcess(executable: shell, environment: Self.environment(),
                               execName: "-" + URL(fileURLWithPath: shell).lastPathComponent,

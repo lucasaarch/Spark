@@ -14,7 +14,6 @@ struct ContentView: View {
             }
             if let session = workspace.selected {
                 SessionView(session: session, workspace: workspace)
-                    .id(session.id)
             }
         }
         .background {
@@ -118,7 +117,7 @@ private struct SessionView: View {
             .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
             .padding(.horizontal, 18).frame(height: 39)
             Rectangle().fill(.white.opacity(0.065)).frame(height: 1)
-            TerminalHost(session: session).padding(14)
+            TerminalHost(workspace: workspace).padding(14)
             if session.status != .running && session.status != .ready {
                 HStack {
                     Text(session.status.label).foregroundStyle(.secondary)
@@ -155,27 +154,46 @@ private struct SessionView: View {
 }
 
 private struct TerminalHost: NSViewRepresentable {
-    let session: TerminalSession
-    func makeNSView(context: Context) -> NSView {
-        let container = NSView()
-        let terminal = session.terminal
-        terminal.removeFromSuperview()
-        terminal.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(terminal)
-        NSLayoutConstraint.activate([
-            terminal.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            terminal.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            terminal.topAnchor.constraint(equalTo: container.topAnchor),
-            terminal.bottomAnchor.constraint(equalTo: container.bottomAnchor)
-        ])
-        DispatchQueue.main.async {
-            guard terminal.window != nil else { return }
-            session.start()
-            terminal.window?.makeFirstResponder(terminal)
-        }
-        return container
+    @ObservedObject var workspace: Workspace
+
+    final class Coordinator {
+        var selectedID: UUID?
     }
-    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ container: NSView, context: Context) {
+        // Keep view identity stable across tab switches. Hiding a view preserves
+        // its PTY, scrollback, selection, and renderer.
+        let liveViews = workspace.sessions.map(\.terminal)
+        for view in container.subviews where !liveViews.contains(where: { $0 === view }) {
+            view.removeFromSuperview()
+        }
+        for session in workspace.sessions {
+            let terminal = session.terminal
+            if terminal.superview !== container {
+                terminal.translatesAutoresizingMaskIntoConstraints = false
+                container.addSubview(terminal)
+                NSLayoutConstraint.activate([
+                    terminal.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+                    terminal.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                    terminal.topAnchor.constraint(equalTo: container.topAnchor),
+                    terminal.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+                ])
+            }
+            terminal.isHidden = session.id != workspace.selectedID
+        }
+        guard context.coordinator.selectedID != workspace.selectedID,
+              let session = workspace.selected else { return }
+        context.coordinator.selectedID = session.id
+        DispatchQueue.main.async { [weak workspace] in
+            guard workspace?.selectedID == session.id, session.terminal.window != nil else { return }
+            session.applyPreferences()
+            session.start()
+            session.terminal.window?.makeFirstResponder(session.terminal)
+        }
+    }
 }
 
 private struct VisualEffect: NSViewRepresentable {

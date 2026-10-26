@@ -6,6 +6,7 @@ Built with **SwiftUI + AppKit**, [SwiftTerm](https://github.com/migueldeicaza/Sw
 
 ## What works
 
+- Metal rendering with a Core Graphics fallback when a GPU surface is unavailable.
 - Real PTY sessions running your account's login shell and shell configuration.
 - Persistent tabs and independent windows. Switching tabs keeps the process and scrollback alive.
 - 10,000 lines of scrollback, true color, selection, copy/paste, and SwiftTerm's native search.
