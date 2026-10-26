@@ -9,6 +9,7 @@ Built with **SwiftUI + AppKit**, [SwiftTerm](https://github.com/migueldeicaza/Sw
 - Metal rendering with a Core Graphics fallback when a GPU surface is unavailable.
 - Real PTY sessions running your account's login shell and shell configuration.
 - Persistent tabs and independent windows. Switching tabs keeps the process and scrollback alive.
+- Window size and position restored between launches.
 - Codex and Claude Code awareness: per-tab activity colors, attention indicators, and a live context/usage panel.
 - 10,000 lines of scrollback, true color, selection, copy/paste, and SwiftTerm's native search.
 - Open a folder in a new session. New tabs inherit the active session's reported directory (OSC 7); without shell directory reporting, they inherit its initial directory.
@@ -62,9 +63,9 @@ Tabs keep a fixed height and a single title line. Codex uses the OpenAI logo; Cl
 
 The OpenAI and Anthropic logo assets are from [Simple Icons 13.21.0](https://github.com/simple-icons/simple-icons/tree/13.21.0), distributed under [CC0](https://github.com/simple-icons/simple-icons/blob/13.21.0/LICENSE.md). The marks belong to their respective owners.
 
-The panel displays **live model, context usage, input/output tokens, and plan limits**, plus Claude's estimated session cost. Missing fields say “Not reported”; a missing metric is never presented as zero. Codex tabs start as **Codex** and adopt the conversation name once one is reported.
+The panel displays **live model, context usage, input/output tokens, and plan limits**, plus Claude's estimated session cost. The button above the terminal shows **`x% usage left`**, meaning the remaining context of that session; its color and tooltip retain the activity state. Missing fields say “Not reported”; a missing metric is never presented as zero. Codex tabs start as **Codex** and adopt the conversation name once one is reported.
 
-**Connecting metrics:** open a **new zsh tab** in Spark, then run `codex` or `claude` normally. Spark forwards your normal `.zshenv`, `.zprofile`, `.zshrc`, and `.zlogin`, restores your `ZDOTDIR`, and installs session-local shell functions. User startup files and global CLI settings are never edited. Existing aliases/functions named `codex` or `claude` take precedence, and redirected/non-interactive input or output bypasses the integration. Existing tabs, other shells, absolute executable paths, and `command codex` / `command claude` do not use the wrappers and may show “Metrics not connected.”
+**Connecting metrics:** open a **new zsh tab** in Spark, then run `codex` or `claude` normally. Spark forwards your normal `.zshenv`, `.zprofile`, `.zshrc`, and `.zlogin`, restores your `ZDOTDIR`, and adds session-local launchers to `PATH`. This also covers `command codex`, `caveman codex`, and aliases such as `cdx='caveman codex'`: child processes find the launcher just as the shell does. User aliases, startup files, and global CLI settings are never edited. The launchers preserve arguments, environment, and exit status; redirected/non-interactive input or output bypasses the integration. Existing tabs, other shells, absolute executable paths, and commands that replace `PATH` may show “Metrics not connected.”
 
 **Data sources and meanings:**
 

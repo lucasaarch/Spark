@@ -141,8 +141,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 final class TerminalWindowController: NSWindowController, NSWindowDelegate {
     let workspace = Workspace()
     var onClose: (() -> Void)?
+    private let frameName: NSWindow.FrameAutosaveName
 
-    init() {
+    init(frameName: NSWindow.FrameAutosaveName = "SparkTerminalWindow") {
+        self.frameName = frameName
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 740),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         super.init(window: window)
@@ -153,19 +155,32 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         window.backgroundColor = NSColor(srgbRed: 0.10, green: 0.11, blue: 0.13, alpha: 1)
         window.minSize = NSSize(width: 620, height: 400)
         window.isReleasedWhenClosed = false
-        window.delegate = self
-        window.setFrameAutosaveName("SparkTerminalWindow")
-        window.center()
+        shouldCascadeWindows = false
         workspace.window = window
         workspace.add()
         window.contentView = NSHostingView(rootView: ContentView(workspace: workspace))
+        // Restore after installing content, and never center over a saved frame.
+        if !window.setFrameUsingName(frameName) { window.center() }
+        window.setFrameAutosaveName(frameName)
+        window.delegate = self
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         !workspace.hasRunningSessions || Workspace.confirmClose()
     }
     func windowWillClose(_ notification: Notification) {
+        saveFrame()
         workspace.stopAll()
         onClose?()
+    }
+
+    func windowDidMove(_ notification: Notification) { saveFrame() }
+    func windowDidResize(_ notification: Notification) { saveFrame() }
+
+    private func saveFrame() {
+        guard let window, !window.styleMask.contains(.fullScreen) else { return }
+        // AppKit permits only one live window to own an autosave name. Explicit
+        // saves also remember the last frame when another Spark window moves.
+        window.saveFrame(usingName: frameName)
     }
 }

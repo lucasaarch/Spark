@@ -115,7 +115,7 @@ struct AgentMetricsTests {
         #expect(condition(), "Expected metric event within six seconds")
     }
 
-    private struct Fixture {
+    struct Fixture {
         let folder: URL
         init() throws {
             folder = FileManager.default.temporaryDirectory.appendingPathComponent("Spark-test-" + UUID().uuidString)

@@ -1,7 +1,7 @@
 import Foundation
 
-/// A private ZDOTDIR forwards every login startup file, then installs two
-/// interactive functions. No user rc file or global CLI setting is edited.
+/// A private ZDOTDIR forwards login startup files, then puts two launchers on
+/// PATH. Descendants such as `caveman codex` use the same integration.
 final class AgentShellIntegration {
     let directory: URL
 
@@ -10,6 +10,14 @@ final class AgentShellIntegration {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                attributes: [.posixPermissions: 0o700])
         do {
+            let bin = directory.appendingPathComponent("bin", isDirectory: true)
+            try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: false,
+                                                   attributes: [.posixPermissions: 0o700])
+            for agent in ["codex", "claude"] {
+                let file = bin.appendingPathComponent(agent)
+                try Self.launcher(for: agent).write(to: file, atomically: true, encoding: .utf8)
+                try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: file.path)
+            }
             for name in [".zshenv", ".zprofile", ".zshrc", ".zlogin"] {
                 var script = """
                 if (( ${+SPARK_USER_ZDOTDIR} )); then
@@ -46,6 +54,7 @@ final class AgentShellIntegration {
         env["ZDOTDIR"] = directory.path
         env["SPARK_INTEGRATION_DIRECTORY"] = directory.path
         env["SPARK_METRICS_DIRECTORY"] = directory.path
+        env["SPARK_AGENT_BIN"] = directory.appendingPathComponent("bin").path
         env["SPARK_EXECUTABLE"] = executable
         // JSON contains a fixed shell command. The executable is expanded as a
         // quoted environment variable, so spaces and metacharacters are safe.
@@ -60,31 +69,38 @@ final class AgentShellIntegration {
                              "five-hour-limit", "app-name", "weekly-limit", "app-name"]
 
     private static var functions: String {
-        let items = String(data: try! JSONEncoder().encode(titleItems), encoding: .utf8)!
         return """
         if [[ -o interactive ]]; then
-          if (( ! $+functions[codex] && ! $+aliases[codex] )); then
-            function codex {
-              if [[ ! -t 0 || ! -t 1 ]]; then command codex "$@"; return $?; fi
-              printf '\\033]9001;SparkAgent:codex\\007'
-              command codex -c 'tui.terminal_title=\(items)' "$@"
-              local spark_exit=$?
-              printf '\\033]9001;SparkAgent:end\\007\\033]7501;state=clear\\007\\033]2;\\007'
-              return $spark_exit
-            }
-          fi
-          if (( ! $+functions[claude] && ! $+aliases[claude] )); then
-            function claude {
-              if [[ ! -t 0 || ! -t 1 ]]; then command claude "$@"; return $?; fi
-              local -x SPARK_CLAUDE_INVOCATION=$(/usr/bin/uuidgen)
-              printf '\\033]9001;SparkAgent:claude:%s\\007' "$SPARK_CLAUDE_INVOCATION"
-              command claude --settings "$SPARK_CLAUDE_SETTINGS" "$@"
-              local spark_exit=$?
-              printf '\\033]9001;SparkAgent:end\\007\\033]7501;state=clear\\007\\033]2;\\007'
-              return $spark_exit
-            }
-          fi
+          path=("$SPARK_AGENT_BIN" "${path[@]}")
+          export PATH
+          rehash
         fi
+
+        """
+    }
+
+    private static func launcher(for agent: String) -> String {
+        let items = String(data: try! JSONEncoder().encode(titleItems), encoding: .utf8)!
+        let start = agent == "codex"
+            ? "printf '\\033]9001;SparkAgent:codex\\007'\n\"$spark_binary\" -c 'tui.terminal_title=\(items)' \"$@\""
+            : "export SPARK_CLAUDE_INVOCATION=$(/usr/bin/uuidgen)\nprintf '\\033]9001;SparkAgent:claude:%s\\007' \"$SPARK_CLAUDE_INVOCATION\"\n\"$spark_binary\" --settings \"$SPARK_CLAUDE_SETTINGS\" \"$@\""
+        return """
+        #!/bin/zsh -f
+        # Resolve the user's executable without finding this launcher again.
+        typeset -a spark_original_path=("${path[@]}")
+        typeset -a spark_search_path=()
+        for spark_entry in "${path[@]}"; do
+          [[ "$spark_entry" != "$SPARK_AGENT_BIN" ]] && spark_search_path+=("$spark_entry")
+        done
+        path=("${spark_search_path[@]}")
+        spark_binary=$(whence -p \(agent)) || { print -u2 'Spark: \(agent) not found on PATH'; exit 127; }
+        path=("${spark_original_path[@]}")
+        export PATH
+        # Automation retains its original arguments, output, and exit status.
+        if [[ ! -t 0 || ! -t 1 ]]; then exec "$spark_binary" "$@"; fi
+        trap 'printf "\\033]9001;SparkAgent:end\\007\\033]7501;state=clear\\007\\033]2;\\007"' EXIT
+        \(start)
+        exit $?
 
         """
     }

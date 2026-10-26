@@ -20,9 +20,11 @@ struct AgentBadge: View {
             Button { session.showsAgentDetails.toggle() } label: {
                 HStack(spacing: 7) {
                     Image(systemName: agent.icon)
-                    Text(agent.provider.name).fontWeight(.semibold)
-                    Text("·").opacity(0.5)
-                    Text(agent.label)
+                    if let used = session.metrics?.contextPercent {
+                        Text("\(100 - used, specifier: "%.0f")% usage left").fontWeight(.semibold).monospacedDigit()
+                    } else {
+                        Text("Usage not reported").fontWeight(.semibold)
+                    }
                     Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold))
                 }
                 .font(.system(size: 10))
@@ -32,9 +34,9 @@ struct AgentBadge: View {
                 .overlay(Capsule().strokeBorder(agent.color.opacity(0.2)))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(agent.provider.name), \(agent.label). Context and usage")
+            .accessibilityLabel("\(agent.provider.name), \(agent.label). \(session.metrics?.contextPercent.map { String(format: "%.0f%% context remaining", 100 - $0) } ?? "Usage not reported"). Context and usage")
             .accessibilityIdentifier("agentDetails")
-            .help("Agent status, context and usage")
+            .help("\(agent.provider.name) · \(agent.label). Remaining session context; click for usage details.")
             .popover(isPresented: $session.showsAgentDetails, arrowEdge: .bottom) {
                 AgentDetails(session: session).id(session.id)
             }
