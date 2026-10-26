@@ -104,9 +104,15 @@ struct LaunchCompatibilityTests {
         window.setContentSize(NSSize(width: 1400, height: 900))
         try await Task.sleep(for: .milliseconds(500))
         let terminal = session.terminal
-        let grid = terminal.getOptimalFrameSize().size
-        #expect(abs(grid.width - terminal.bounds.width) < 20)
-        #expect(abs(grid.height - terminal.bounds.height) < 30)
+        // Frame rendering and the main-actor reconciliation are asynchronous;
+        // a busy runner may resume this test before the resize callback.
+        try await wait {
+            let grid = terminal.getOptimalFrameSize().size
+            let dimensions = terminal.terminalDimensions
+            return abs(grid.width - terminal.bounds.width) < 20
+                && abs(grid.height - terminal.bounds.height) < 30
+                && session.dimensions == "\(dimensions.cols) × \(dimensions.rows)"
+        }
         let dimensions = terminal.terminalDimensions
         terminal.send(data: Array("printf 'PTY_SIZE:'; stty size\n".utf8)[...])
         try await wait { output(session).contains("PTY_SIZE:\(dimensions.rows) \(dimensions.cols)") }
