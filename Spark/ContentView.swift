@@ -82,15 +82,18 @@ private struct SessionTab: View {
         HStack(spacing: 9) {
             Button(action: select) {
                 HStack(spacing: 9) {
-                    Image(systemName: session.agent?.icon ?? "terminal")
-                        .foregroundStyle(session.agent?.color ?? (selected ? ember : .secondary))
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(session.title).lineLimit(1).truncationMode(.middle)
+                    Group {
                         if let agent = session.agent {
-                            Text("\(agent.provider.name) · \(agent.label)")
-                                .font(.system(size: 9, weight: .medium)).foregroundStyle(agent.color).lineLimit(1)
+                            Image(agent.provider == .codex ? "OpenAI" : "Anthropic")
+                                .resizable().scaledToFit()
+                        } else {
+                            Image(systemName: "terminal")
                         }
-                    }.frame(maxWidth: 180, alignment: .leading)
+                    }
+                        .frame(width: 16, height: 16)
+                        .foregroundStyle(session.agent?.color ?? (selected ? ember : .secondary))
+                    Text(session.title).lineLimit(1).truncationMode(.middle)
+                        .frame(maxWidth: 180, alignment: .leading)
                 }.padding(.vertical, 10).padding(.leading, 12)
             }.buttonStyle(.plain).accessibilityLabel("Select \(session.title)\(session.agent.map { ", \($0.provider.name), \($0.label)" } ?? "")")
             Button(action: close) {
@@ -99,6 +102,7 @@ private struct SessionTab: View {
                 .padding(.trailing, 5)
         }
         .font(.system(size: 12, weight: selected ? .medium : .regular))
+        .frame(height: 36)
         .background(session.agent?.color.opacity(selected ? 0.12 : 0.055)
                     ?? .white.opacity(selected ? 0.07 : 0.025), in: RoundedRectangle(cornerRadius: 9))
         .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(session.agent?.color.opacity(selected ? 0.5 : 0.22)

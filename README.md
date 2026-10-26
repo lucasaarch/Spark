@@ -48,7 +48,7 @@ The tests exercise real PTY output and termination, session ownership, tab selec
 
 ## Codex and Claude Code
 
-Run either CLI normally. On versions that emit **OSC 7501 (Program Status Protocol)**, Spark automatically shows the agent name, state, and color in that terminal's tab, including background tabs:
+Run either CLI normally. On versions that emit **OSC 7501 (Program Status Protocol)**, Spark automatically shows the provider logo and status color in that terminal's tab, including background tabs:
 
 | Color | State |
 | --- | --- |
@@ -58,7 +58,9 @@ Run either CLI normally. On versions that emit **OSC 7501 (Program Status Protoc
 | Rose | Error |
 | Lavender | Ready |
 
-Click the agent badge above the terminal to see its reported status, message, and task progress when supplied. Icons and labels accompany colors. Child reports that need attention take priority. Clearing the report or ending the PTY removes the agent UI.
+Tabs keep a fixed height and a single title line. Codex uses the OpenAI logo; Claude Code uses the Anthropic logo. Status is conveyed by color, with the agent name and status also available in the tooltip and accessibility label. Click the agent badge above the terminal to see its reported status, message, and task progress when supplied. Child reports that need attention take priority. Clearing the report or ending the PTY removes the agent UI.
+
+The OpenAI and Anthropic logo assets are from [Simple Icons 13.21.0](https://github.com/simple-icons/simple-icons/tree/13.21.0), distributed under [CC0](https://github.com/simple-icons/simple-icons/blob/13.21.0/LICENSE.md). The marks belong to their respective owners.
 
 The panel also offers **Context** (`/status` in Codex, `/context` in Claude Code) and **Usage** (`/usage`). These insert the CLI's own command at the cursor **without sending it**. Start with an empty prompt and press Return to inspect the figures in that session. The shortcuts are disabled while the agent reports work, an error, or a pending interaction. They never send approvals, erase your draft, or change client settings.
 
