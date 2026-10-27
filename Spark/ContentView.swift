@@ -159,12 +159,13 @@ private struct SessionTab: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(selectionLabel)
+            .accessibilityAddTraits(selected ? .isSelected : [])
             Button(action: close) {
                 Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)).frame(width: 22, height: 24)
             }.buttonStyle(ChromeButtonStyle()).help("Close tab").accessibilityLabel("Close \(session.displayTitle)")
                 .padding(.trailing, 5)
         }
-        .font(.system(size: 12, weight: selected ? .medium : .regular))
+        .font(.system(size: 12, weight: .medium))
         .frame(height: 36)
         .background(
             session.agent?.color.opacity(selected ? 0.12 : 0.055)
