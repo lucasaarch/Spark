@@ -1,5 +1,31 @@
 import AppKit
 import Combine
+import UniformTypeIdentifiers
+
+@MainActor
+final class PaneDragState: ObservableObject {
+    static let contentType = UTType(exportedAs: "com.lucasarch.spark-pane")
+
+    @Published private(set) var sourceID: UUID?
+    @Published private(set) var preview: PaneDropPreview?
+
+    func begin(_ id: UUID) {
+        sourceID = id
+        preview = nil
+    }
+
+    func showPreview(_ value: PaneDropPreview) { preview = value }
+
+    func clearPreview(target: UUID? = nil) {
+        guard target == nil || preview?.targetID == target else { return }
+        preview = nil
+    }
+
+    func clear() {
+        sourceID = nil
+        preview = nil
+    }
+}
 
 @MainActor
 final class Workspace: ObservableObject {
@@ -7,6 +33,8 @@ final class Workspace: ObservableObject {
     @Published var name: String { didSet { changed() } }
     @Published private(set) var sessions: [TerminalSession] = []
     @Published private(set) var tabs: [WorkspaceTab] = []
+    let paneDrag = PaneDragState()
+    private(set) var paneLayoutAnimationID = UUID()
     @Published var selectedID: UUID? { didSet { changed() } }
     @Published var showsSettings = false
     @Published var showsCommandPalette = false
@@ -55,6 +83,27 @@ final class Workspace: ObservableObject {
     var visibleSessionIDs: [UUID] { selectedTab?.layout.sessionIDs ?? [] }
     var canSplit: Bool { selected != nil && visibleSessionIDs.count < 8 }
     var hasActiveCommands: Bool { sessions.contains(where: \.hasActiveCommand) }
+
+    func canMovePane(_ source: UUID, onto target: UUID) -> Bool {
+        guard source != target,
+            let sourceTab = tabs.first(where: { $0.layout.sessionIDs.contains(source) }),
+            let targetTab = tabs.first(where: { $0.layout.sessionIDs.contains(target) })
+        else { return false }
+        return sourceTab.id == targetTab.id
+    }
+
+    @discardableResult
+    func movePane(_ source: UUID, onto target: UUID, zone: PaneDropZone) -> Bool {
+        guard canMovePane(source, onto: target),
+            let index = tabs.firstIndex(where: { $0.layout.sessionIDs.contains(source) }),
+            let layout = tabs[index].layout.moving(source, onto: target, zone: zone)
+        else { return false }
+        tabs[index].layout = layout
+        paneLayoutAnimationID = UUID()
+        paneDrag.clear()
+        changed()
+        return true
+    }
 
     func showReview(for source: TerminalSession? = nil) {
         guard let source = source ?? selected else { return }
