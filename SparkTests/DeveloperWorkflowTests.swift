@@ -139,11 +139,12 @@ struct ConversationWorkflowTests {
     func resumeWaitsForInstantPromptToRestoreTerminal(provider: AgentActivity.Provider) async throws {
         let fixture = try AgentMetricsTests.Fixture()
         defer { fixture.remove() }
-        // Reproduce p10k's startup contract: redirect descriptors during startup,
-        // then restore them in a scheduled callback after the first precmd.
+        // Reproduce p10k's startup contract and race: restore descriptors after
+        // Spark's first scheduled launch attempt.
         let startupFile = fixture.folder.appendingPathComponent(".zshrc")
         let startup =
-            try String(contentsOf: startupFile, encoding: .utf8) + """
+            try String(contentsOf: startupFile, encoding: .utf8)
+                .replacingOccurrences(of: "unsetopt zle\n", with: "") + """
 
                 exec {saved_in}<&0 {saved_out}>&1 {saved_err}>&2
                 exec </dev/null >"$HOME/startup-output" 2>&1
@@ -153,7 +154,7 @@ struct ConversationWorkflowTests {
                 }
                 function schedule_startup_io {
                   zmodload zsh/sched
-                  sched +0 restore_startup_io
+                  sched +1 restore_startup_io
                   precmd_functions=(${precmd_functions:#schedule_startup_io})
                 }
                 precmd_functions=(schedule_startup_io)
@@ -179,7 +180,7 @@ struct ConversationWorkflowTests {
         // The launcher reports its provider before the CLI writes its output.
         let expectedResume = "RESUMED_WITH_TTY:\(provider == .codex ? "resume" : "--resume")|\(id.uuidString.lowercased())"
         var output = ""
-        for _ in 0..<150 {
+        for _ in 0..<300 {
             output = String(decoding: session.terminal.getBufferAsData(), as: UTF8.self)
             if output.contains(expectedResume) { break }
             try await Task.sleep(for: .milliseconds(20))

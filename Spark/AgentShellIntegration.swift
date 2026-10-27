@@ -94,9 +94,21 @@ final class AgentShellIntegration {
               export PATH
               rehash
               if [[ -n "$SPARK_LAUNCH_PROVIDER" ]]; then
+                typeset -gi _spark_launch_attempts=0
                 function _spark_launch_agent {
+                  if [[ ! -t 0 || ! -t 1 || ! -t 2 ]]; then
+                    if (( ++_spark_launch_attempts < 10 )); then
+                      sched +1 _spark_launch_agent
+                      return 0
+                    fi
+                    unset SPARK_LAUNCH_PROVIDER SPARK_RESUME_ID
+                    printf '\033]9001;SparkAgent:launch-failed\007'
+                    print -u2 'Spark could not resume this conversation because terminal input is unavailable.'
+                    return 1
+                  fi
                   local spark_provider="$SPARK_LAUNCH_PROVIDER" spark_resume="$SPARK_RESUME_ID"
                   unset SPARK_LAUNCH_PROVIDER SPARK_RESUME_ID
+                  unset _spark_launch_attempts
                   case "$spark_provider" in
                     codex)
                       if [[ -n "$spark_resume" ]]; then command codex resume "$spark_resume"; else command codex; fi ;;

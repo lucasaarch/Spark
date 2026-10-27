@@ -253,6 +253,10 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
     private func receiveIntegration(_ message: String) {
         guard terminal.process.running else { return }
         if message == "SparkAgent:end" { clearAgent(); return }
+        if message == "SparkAgent:launch-failed" {
+            hasPendingLaunch = false
+            return
+        }
         if message.hasPrefix("SparkCodexHome:"), integratedProvider == .codex,
             let data = Data(base64Encoded: String(message.dropFirst("SparkCodexHome:".count))),
             let path = String(data: data, encoding: .utf8), path.hasPrefix("/"), !path.contains("\0") {
