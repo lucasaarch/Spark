@@ -49,7 +49,6 @@ struct ActivityPanel: View {
 private struct WorkspaceActivitySection: View {
     @ObservedObject var workspace: Workspace
     @ObservedObject var catalog: WorkspaceStore
-    @State private var showsHistory = true
 
     private var recent: [AgentConversation] {
         workspace.conversations.filter { conversation in
@@ -70,7 +69,9 @@ private struct WorkspaceActivitySection: View {
                 Text("No agents running").font(.caption).foregroundStyle(.tertiary)
             }
             if !recent.isEmpty {
-                DisclosureGroup("Recent conversations", isExpanded: $showsHistory) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("RECENT CONVERSATIONS").font(.system(size: 10, weight: .semibold)).tracking(1)
+                        .foregroundStyle(.secondary)
                     ForEach(recent) { conversation in
                         Button {
                             catalog.openWorkspace?(workspace.id)
@@ -85,7 +86,7 @@ private struct WorkspaceActivitySection: View {
                             }.padding(.vertical, 6).contentShape(Rectangle())
                         }.buttonStyle(.plain).help("Resume in a new tab · \(conversation.directory)")
                     }
-                }.font(.caption)
+                }
             }
         }
     }
