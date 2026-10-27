@@ -20,7 +20,7 @@ Configure these **repository Actions secrets** at [Settings → Secrets and vari
 | `APPLE_API_ISSUER_ID` | App Store Connect issuer identifier |
 | `SPARKLE_PRIVATE_KEY` | Sparkle Ed25519 private key |
 
-`GITHUB_TOKEN` is supplied automatically. The release job maps these secrets to environment variables and checks them before building. Keys are decoded only into a temporary directory and removed on exit. Never commit certificates or private keys. Base64 values must be a single line.
+`GITHUB_TOKEN` is supplied automatically. The release job maps these secrets to environment variables and checks them before building. Keys are decoded only into a temporary directory and removed on exit. Never commit certificates or private keys. Base64 values may contain line wrapping; whitespace is removed before strict decoding. Encode the entire file, rather than pasting raw PEM content or a file path.
 
 The Sparkle public key is committed in `Config/Spark-Info.plist`. Its matching private key is also stored in the original developer Mac's Keychain under account `lucasaarch.Spark`; preserve it for future releases. Do not generate a different key for each release.
 

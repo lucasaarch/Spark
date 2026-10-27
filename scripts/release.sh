@@ -43,11 +43,19 @@ cleanup() {
 trap cleanup EXIT
 export SPARK_SIGNING_DIR="$signing_dir"
 python3 <<'PY'
-import os, base64, pathlib
+import os, base64, binascii, pathlib
 folder = pathlib.Path(os.environ['SPARK_SIGNING_DIR'])
 for name, secret in [('certificate.p12', 'CERTIFICATE_P12_BASE64'), ('AuthKey.p8', 'APPLE_API_KEY_BASE64')]:
     path = folder / name
-    path.write_bytes(base64.b64decode(os.environ[secret], validate=True))
+    # Base64 exports and clipboard pastes commonly contain line wrapping.
+    encoded = ''.join(os.environ[secret].split())
+    try:
+        decoded = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        raise SystemExit(f'{secret} must contain a base64-encoded file, not raw PEM or a file path.') from None
+    if not decoded:
+        raise SystemExit(f'{secret} decoded to an empty file.')
+    path.write_bytes(decoded)
     path.chmod(0o600)
 PY
 keychain_password="$(openssl rand -hex 24)"
