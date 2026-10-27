@@ -120,6 +120,21 @@ private struct SessionTab: View {
     let close: () -> Void
 
     var body: some View {
+        tabChrome
+            .help(sessionHelp)
+            .contextMenu {
+                Button("Rename Active Pane…") {
+                    newTitle = session.customTitle ?? session.displayTitle
+                    renaming = true
+                }
+                Button("Use Automatic Title") { session.customTitle = nil }
+            }
+            .sheet(isPresented: $renaming) {
+                RenamePaneDialog(initialName: newTitle) { session.customTitle = $0 }
+            }
+    }
+
+    private var tabChrome: some View {
         HStack(spacing: 9) {
             Button(action: select) {
                 HStack(spacing: 9) {
@@ -141,8 +156,9 @@ private struct SessionTab: View {
                 .padding(.leading, 12)
                 .padding(.trailing, 18)
                 .contentShape(Rectangle())
-            }.buttonStyle(.plain).accessibilityLabel(
-                "Select \(session.displayTitle)\(session.agent.map { ", \($0.provider.name), \($0.label)" } ?? "")")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(selectionLabel)
             Button(action: close) {
                 Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)).frame(width: 22, height: 24)
             }.buttonStyle(ChromeButtonStyle()).help("Close tab").accessibilityLabel("Close \(session.displayTitle)")
@@ -171,17 +187,16 @@ private struct SessionTab: View {
                     .onDisappear { paneDrag.removeTabFrame(for: tabID) }
             }
         }
-        .help(session.agent.map { "\($0.provider.name) · \($0.label)" } ?? session.displayTitle)
-        .contextMenu {
-            Button("Rename Active Pane…") {
-                newTitle = session.customTitle ?? session.displayTitle
-                renaming = true
-            }
-            Button("Use Automatic Title") { session.customTitle = nil }
-        }
-        .sheet(isPresented: $renaming) {
-            RenamePaneDialog(initialName: newTitle) { session.customTitle = $0 }
-        }
+    }
+
+    private var sessionHelp: String {
+        guard let agent = session.agent else { return session.displayTitle }
+        return "\(agent.provider.name) · \(agent.label)"
+    }
+
+    private var selectionLabel: String {
+        guard let agent = session.agent else { return "Select \(session.displayTitle)" }
+        return "Select \(session.displayTitle), \(agent.provider.name), \(agent.label)"
     }
 }
 
