@@ -6,7 +6,7 @@ The updater reads:
 https://github.com/lucasaarch/Spark/releases/latest/download/appcast.xml
 ```
 
-The URL starts working after the first successful release. The GitHub releases page itself is not an appcast. Each release contains `Spark-VERSION.zip`, `appcast.xml`, and `SHA256SUMS`.
+The URL starts working after the first successful release. The GitHub releases page itself is not an appcast. Each release contains `Spark-VERSION.dmg` for installation, `Spark-VERSION.zip` for Sparkle, `appcast.xml`, and `SHA256SUMS` covering both downloads. The DMG contains Spark.app and a shortcut to Applications.
 
 Configure these **repository Actions secrets** at [Settings → Secrets and variables → Actions](https://github.com/lucasaarch/Spark/settings/secrets/actions):
 
@@ -24,13 +24,13 @@ Configure these **repository Actions secrets** at [Settings → Secrets and vari
 
 The Sparkle public key is committed in `Config/Spark-Info.plist`. Its matching private key is also stored in the original developer Mac's Keychain under account `lucasaarch.Spark`; preserve it for future releases. Do not generate a different key for each release.
 
-After configuring the Apple secrets and verifying CI on the exact commit, publish a new version:
+Set the project version and add `release-notes/VERSION.md` before committing. After configuring the Apple secrets and verifying CI on the exact commit (including DMG packaging), publish a new version:
 
 ```sh
-git tag v0.1.0
-git push origin v0.1.0
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
-The workflow validates the stable version tag, runs tests, archives a universal app, signs and exports with Developer ID, submits to Apple, checks acceptance, staples and validates the notarization, signs the update archive with Sparkle, and uploads all assets to a draft release before publishing it. Both bundle versions come from the tag. A release must be newer than the latest published version. No unsigned fallback is published if signing or notarization fails.
+The workflow validates the stable version tag, runs tests, archives a universal app, signs and exports with Developer ID, submits to Apple, checks acceptance, staples and validates the notarization, creates and separately signs/notarizes/staples the DMG, signs the ZIP update archive with Sparkle, and uploads all assets to a draft release before publishing it. Both bundle versions come from the tag. A release must be newer than the latest published version. No unsigned fallback is published if signing or notarization fails.
 
 If publishing fails after creating a draft, inspect and remove that incomplete draft before rerunning the job. Do not replace an already published version; create a new version tag.

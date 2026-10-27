@@ -21,7 +21,7 @@ SwiftLint 0.65.1 is pinned in `scripts/lint.sh`. The script uses that installed 
 
 The test build uses ad-hoc signing and disables the hardened runtime so Sparkle can load. Distribution builds retain Developer ID signing and the hardened runtime.
 
-`SparkUITests` additionally exercises native UI interactions and requires Xcode's UI automation permission on the Mac running it. Run it from Xcode, or use `xcodebuild test -project Spark.xcodeproj -scheme Spark -destination 'platform=macOS' -only-testing:SparkUITests`. CI runs `SparkTests` and compiles the universal Release app; it does not run the UI automation suite.
+`SparkUITests` additionally exercises native UI interactions and requires Xcode's UI automation permission on the Mac running it. Run it from Xcode, or use `xcodebuild test -project Spark.xcodeproj -scheme Spark -destination 'platform=macOS' -only-testing:SparkUITests`. CI runs `SparkTests`, compiles the universal Release app, and mounts a DMG to verify its contents; it does not run the UI automation suite.
 
 ## Pull requests
 

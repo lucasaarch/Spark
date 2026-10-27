@@ -14,6 +14,7 @@ done
 [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo '::error::Use a stable version tag, such as v0.1.0.'; exit 1; }
 [[ "${1:-}" != --check ]] || exit 0
 version="${GITHUB_REF_NAME#v}"
+[[ -f "release-notes/$version.md" ]] || { echo "::error::Missing release-notes/$version.md"; exit 1; }
 # Keep the latest feed monotonic, including when someone pushes an older version tag.
 latest_metadata="$RUNNER_TEMP/spark-latest.json"
 if ! gh api "repos/$GITHUB_REPOSITORY/releases/latest" > "$latest_metadata" 2> "$RUNNER_TEMP/spark-latest-error"; then
@@ -74,21 +75,35 @@ xcodebuild -exportArchive -archivePath .build/release/Spark.xcarchive \
   -exportPath .build/release/export -exportOptionsPlist .build/release/ExportOptions.plist
 app='.build/release/export/Spark.app'
 codesign --verify --deep --strict --verbose=2 "$app"
-lipo -verify_arch arm64 x86_64 "$app/Contents/MacOS/Spark"
+for arch in arm64 x86_64; do
+  lipo "$app/Contents/MacOS/Spark" -verify_arch "$arch"
+done
 # Notarize, then staple before creating the archive signed by Sparkle.
 ditto -c -k --sequesterRsrc --keepParent "$app" .build/release/notarize.zip
-xcrun notarytool submit .build/release/notarize.zip \
-  --key "$signing_dir/AuthKey.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID" \
-  --wait --timeout 20m --output-format json > .build/release/notarization.json
-python3 <<'PY'
-import json
-result = json.load(open('.build/release/notarization.json'))
+notarize() {
+  xcrun notarytool submit "$1" \
+    --key "$signing_dir/AuthKey.p8" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER_ID" \
+    --wait --timeout 20m --output-format json > "$2"
+  python3 - "$2" <<'PYTHON'
+import json, sys
+result = json.load(open(sys.argv[1]))
 if result.get('status') != 'Accepted':
     raise SystemExit('Apple did not accept this build. See the notarization diagnostics.')
-PY
+PYTHON
+}
+notarize .build/release/notarize.zip .build/release/notarization.json
 xcrun stapler staple "$app"
 xcrun stapler validate "$app"
 spctl --assess --type execute --verbose=2 "$app"
+# Keep the DMG outside the appcast input directory so Sparkle selects the ZIP.
+dmg=".build/release/Spark-$version.dmg"
+scripts/package-dmg.sh "$app" "$dmg"
+codesign --force --timestamp --sign 'Developer ID Application' --keychain "$keychain" "$dmg"
+codesign --verify --strict --verbose=2 "$dmg"
+notarize "$dmg" .build/release/dmg-notarization.json
+xcrun stapler staple "$dmg"
+xcrun stapler validate "$dmg"
+spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
 archive=".build/release/updates/Spark-$version.zip"
 ditto -c -k --sequesterRsrc --keepParent "$app" "$archive"
 printf '%s' "$SPARKLE_PRIVATE_KEY" | \
@@ -103,10 +118,11 @@ enclosure = root.find('./channel/item/enclosure')
 assert enclosure is not None and enclosure.get('{http://www.andymatuschak.org/xml-namespaces/sparkle}edSignature')
 assert enclosure.get('url', '').startswith(f'https://github.com/{sys.argv[1]}/releases/download/{sys.argv[2]}/')
 PY
-shasum -a 256 "$archive" | sed 's|.build/release/updates/||' > .build/release/updates/SHA256SUMS
+shasum -a 256 "$dmg" "$archive" | sed -e 's|.build/release/updates/||' -e 's|.build/release/||' \
+  > .build/release/updates/SHA256SUMS
 # A draft prevents clients seeing a release before all of its assets are uploaded.
-gh release create "$GITHUB_REF_NAME" "$archive" .build/release/updates/appcast.xml \
-  .build/release/updates/SHA256SUMS --verify-tag --title "Spark $version" --generate-notes --draft
+gh release create "$GITHUB_REF_NAME" "$dmg" "$archive" .build/release/updates/appcast.xml \
+  .build/release/updates/SHA256SUMS --verify-tag --title "Spark $version" --notes-file "release-notes/$version.md" --draft
 gh release edit "$GITHUB_REF_NAME" --draft=false --latest
 curl --fail --location --retry 4 --retry-all-errors \
   "https://github.com/$GITHUB_REPOSITORY/releases/latest/download/appcast.xml" \
