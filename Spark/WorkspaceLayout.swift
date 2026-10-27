@@ -72,6 +72,13 @@ indirect enum PaneLayout: Codable, Equatable {
         return result
     }
 
+    func adding(_ source: UUID, beside target: UUID, zone: PaneDropZone) -> PaneLayout? {
+        guard !sessionIDs.contains(source), sessionIDs.contains(target),
+            let result = inserting(source, beside: target, zone: zone), result.isValid()
+        else { return nil }
+        return result
+    }
+
     private func inserting(_ source: UUID, beside target: UUID, zone: PaneDropZone) -> PaneLayout? {
         switch self {
         case .pane(let id):

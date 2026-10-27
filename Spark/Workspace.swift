@@ -8,13 +8,39 @@ final class PaneDragState: ObservableObject {
 
     @Published private(set) var sourceID: UUID?
     @Published private(set) var preview: PaneDropPreview?
+    @Published private(set) var tabTargetID: UUID?
+    private var tabFrames: [UUID: CGRect] = [:]
 
     func begin(_ id: UUID) {
         sourceID = id
         preview = nil
+        tabTargetID = nil
     }
 
-    func showPreview(_ value: PaneDropPreview) { preview = value }
+    func showPreview(_ value: PaneDropPreview) {
+        preview = value
+        tabTargetID = nil
+    }
+
+    func showTabTarget(_ id: UUID) {
+        guard tabTargetID != id || preview != nil else { return }
+        tabTargetID = id
+        preview = nil
+    }
+
+    func clearTabTarget(_ id: UUID? = nil) {
+        guard id == nil || tabTargetID == id else { return }
+        tabTargetID = nil
+    }
+
+    func setTabFrame(_ frame: CGRect, for id: UUID) { tabFrames[id] = frame }
+
+    func removeTabFrame(for id: UUID) {
+        tabFrames.removeValue(forKey: id)
+        clearTabTarget(id)
+    }
+
+    func tabID(at point: CGPoint) -> UUID? { tabFrames.first { $0.value.contains(point) }?.key }
 
     func clearPreview(target: UUID? = nil) {
         guard target == nil || preview?.targetID == target else { return }
@@ -24,6 +50,7 @@ final class PaneDragState: ObservableObject {
     func clear() {
         sourceID = nil
         preview = nil
+        tabTargetID = nil
     }
 }
 
@@ -92,6 +119,13 @@ final class Workspace: ObservableObject {
         return sourceTab.id == targetTab.id
     }
 
+    func canMovePane(_ source: UUID, toTab targetTabID: UUID) -> Bool {
+        guard let sourceTab = tabs.first(where: { $0.layout.sessionIDs.contains(source) }),
+            let targetTab = tabs.first(where: { $0.id == targetTabID })
+        else { return false }
+        return sourceTab.id != targetTab.id && targetTab.layout.sessionIDs.count < 8
+    }
+
     @discardableResult
     func movePane(_ source: UUID, onto target: UUID, zone: PaneDropZone) -> Bool {
         guard canMovePane(source, onto: target),
@@ -99,6 +133,36 @@ final class Workspace: ObservableObject {
             let layout = tabs[index].layout.moving(source, onto: target, zone: zone)
         else { return false }
         tabs[index].layout = layout
+        paneLayoutAnimationID = UUID()
+        paneDrag.clear()
+        changed()
+        return true
+    }
+
+    @discardableResult
+    func movePane(_ source: UUID, toTab targetTabID: UUID) -> Bool {
+        guard canMovePane(source, toTab: targetTabID),
+            let sourceIndex = tabs.firstIndex(where: { $0.layout.sessionIDs.contains(source) }),
+            let targetIndex = tabs.firstIndex(where: { $0.id == targetTabID }),
+            let targetLayout = tabs[targetIndex].layout.adding(
+                source, beside: tabs[targetIndex].activePaneID, zone: .trailing)
+        else { return false }
+
+        let sourceLayout = tabs[sourceIndex].layout.removing(source)
+        let sourcePredecessor = tabs[sourceIndex].layout.sessionIDs.prefix(while: { $0 != source }).last
+        let destinationIndex = sourceLayout == nil && sourceIndex < targetIndex ? targetIndex - 1 : targetIndex
+        if let sourceLayout {
+            tabs[sourceIndex].layout = sourceLayout
+            if tabs[sourceIndex].activePaneID == source {
+                tabs[sourceIndex].activePaneID = sourcePredecessor ?? sourceLayout.sessionIDs[0]
+            }
+        } else {
+            tabs.remove(at: sourceIndex)
+        }
+
+        tabs[destinationIndex].layout = targetLayout
+        tabs[destinationIndex].activePaneID = source
+        selectedID = source
         paneLayoutAnimationID = UUID()
         paneDrag.clear()
         changed()
