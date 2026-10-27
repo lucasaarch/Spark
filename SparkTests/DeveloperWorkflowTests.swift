@@ -176,14 +176,15 @@ struct ConversationWorkflowTests {
             directory: fixture.folder, launch: AgentLaunch(provider: provider, conversationID: id))
         defer { session.stop() }
         session.start(environment: fixture.environment(percent: 10))
-        for _ in 0..<100 {
-            if session.agent != nil { break }
+        // The launcher reports its provider before the CLI writes its output.
+        let expectedResume = "RESUMED_WITH_TTY:\(provider == .codex ? "resume" : "--resume")|\(id.uuidString.lowercased())"
+        var output = ""
+        for _ in 0..<150 {
+            output = String(decoding: session.terminal.getBufferAsData(), as: UTF8.self)
+            if output.contains(expectedResume) { break }
             try await Task.sleep(for: .milliseconds(20))
         }
-        let output = String(decoding: session.terminal.getBufferAsData(), as: UTF8.self)
-        #expect(
-            output.contains(
-                "RESUMED_WITH_TTY:\(provider == .codex ? "resume" : "--resume")|\(id.uuidString.lowercased())"))
+        #expect(output.contains(expectedResume))
         let captured = try String(contentsOf: fixture.folder.appendingPathComponent("startup-output"), encoding: .utf8)
         #expect(captured.isEmpty)
     }
@@ -204,13 +205,14 @@ struct ConversationWorkflowTests {
             directory: fixture.folder, launch: AgentLaunch(provider: provider, conversationID: id))
         defer { session.stop() }
         session.start(environment: fixture.environment(percent: 10))
+        let expectedResume = "RESUME_ARGS:\(provider == .codex ? "resume" : "--resume")|\(id.uuidString.lowercased())"
+        var output = ""
         for _ in 0..<150 {
-            if session.agent != nil { break }
+            output = String(decoding: session.terminal.getBufferAsData(), as: UTF8.self)
+            if output.contains(expectedResume) { break }
             try await Task.sleep(for: .milliseconds(20))
         }
-        let output = String(decoding: session.terminal.getBufferAsData(), as: UTF8.self)
-        #expect(
-            output.contains("RESUME_ARGS:\(provider == .codex ? "resume" : "--resume")|\(id.uuidString.lowercased())"))
+        #expect(output.contains(expectedResume))
         session.terminal.send(data: Array("exit\n".utf8)[...])
         for _ in 0..<150 {
             if session.agent == nil { break }
@@ -219,8 +221,12 @@ struct ConversationWorkflowTests {
         #expect(session.agent == nil)
         #expect(session.status == .running)
         session.terminal.send(data: Array("printf 'SHELL_RETURNED\\n'\n".utf8)[...])
-        try await Task.sleep(for: .milliseconds(100))
-        let after = String(decoding: session.terminal.getBufferAsData(), as: UTF8.self)
+        var after = ""
+        for _ in 0..<150 {
+            after = String(decoding: session.terminal.getBufferAsData(), as: UTF8.self)
+            if after.contains("SHELL_RETURNED") { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
         #expect(after.contains("SHELL_RETURNED"))
         #expect(after.components(separatedBy: "RESUME_ARGS:").count == 2)
     }
