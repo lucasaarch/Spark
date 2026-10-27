@@ -28,6 +28,7 @@ struct ContentView: View {
                 SessionFooter(session: session, workspace: workspace, catalog: catalog)
             }
         }
+        .coordinateSpace(name: "spark-content")
         .background {
             ZStack {
                 VisualEffect()
@@ -87,7 +88,8 @@ struct ContentView: View {
                         if let session = workspace.sessions.first(where: { $0.id == tab.activePaneID }) {
                             SessionTab(
                                 session: session, selected: workspace.selectedTab?.id == tab.id,
-                                paneCount: tab.layout.sessionIDs.count,
+                                paneCount: tab.layout.sessionIDs.count, tabID: tab.id,
+                                paneDrag: workspace.paneDrag,
                                 select: { workspace.selectTab(tab) }, close: { workspace.closeTab(tab) })
                         }
                     }
@@ -106,9 +108,12 @@ struct ContentView: View {
 }
 
 private struct SessionTab: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var session: TerminalSession
     let selected: Bool
     let paneCount: Int
+    let tabID: UUID
+    @ObservedObject var paneDrag: PaneDragState
     @State private var renaming = false
     @State private var newTitle = ""
     let select: () -> Void
@@ -151,21 +156,81 @@ private struct SessionTab: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 9).strokeBorder(
-                session.agent?.color.opacity(selected ? 0.5 : 0.22)
-                    ?? (selected ? ember.opacity(0.25) : .white.opacity(0.04)))
+                paneDrag.tabTargetID == tabID ? ember.opacity(0.95)
+                    : session.agent?.color.opacity(selected ? 0.5 : 0.22)
+                        ?? (selected ? ember.opacity(0.25) : .white.opacity(0.04)),
+                lineWidth: paneDrag.tabTargetID == tabID ? 2 : 1)
         )
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.14), value: paneDrag.tabTargetID)
+        .background {
+            GeometryReader { geometry in
+                let frame = geometry.frame(in: .named("spark-content"))
+                Color.clear
+                    .onAppear { paneDrag.setTabFrame(frame, for: tabID) }
+                    .onChange(of: frame) { _, newFrame in paneDrag.setTabFrame(newFrame, for: tabID) }
+                    .onDisappear { paneDrag.removeTabFrame(for: tabID) }
+            }
+        }
         .help(session.agent.map { "\($0.provider.name) · \($0.label)" } ?? session.displayTitle)
         .contextMenu {
             Button("Rename Active Pane…") {
-                newTitle = session.customTitle ?? ""; renaming = true
+                newTitle = session.customTitle ?? session.displayTitle
+                renaming = true
             }
             Button("Use Automatic Title") { session.customTitle = nil }
         }
-        .alert("Rename Pane", isPresented: $renaming) {
-            TextField("Name", text: $newTitle)
-            Button("Cancel", role: .cancel) {}
-            Button("Save") { session.customTitle = AgentMetrics.clean(newTitle) }
+        .sheet(isPresented: $renaming) {
+            RenamePaneDialog(initialName: newTitle) { session.customTitle = $0 }
         }
+    }
+}
+
+private struct RenamePaneDialog: View {
+    let save: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var focused: Bool
+    @State private var name: String
+
+    init(initialName: String, save: @escaping (String) -> Void) {
+        self.save = save
+        _name = State(initialValue: initialName)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Rename Pane").font(.title3.weight(.semibold))
+                Text("Choose a name to show in the tab bar.")
+                    .font(.system(size: 12)).foregroundStyle(.secondary)
+            }
+            VStack(alignment: .leading, spacing: 7) {
+                Text("PANE NAME")
+                    .font(.system(size: 10, weight: .semibold)).tracking(0.8).foregroundStyle(.secondary)
+                TextField("Pane name", text: $name)
+                    .font(.system(size: 14))
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.large)
+                    .focused($focused)
+                    .onSubmit(commit)
+            }
+            HStack(spacing: 10) {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Save", action: commit)
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(AgentMetrics.clean(name) == nil)
+            }
+        }
+        .padding(24)
+        .frame(width: 380)
+        .preferredColorScheme(.dark)
+        .onAppear { focused = true }
+    }
+
+    private func commit() {
+        guard let value = AgentMetrics.clean(name) else { return }
+        save(value)
+        dismiss()
     }
 }
 
@@ -207,26 +272,6 @@ struct SessionPane: View {
     private var paneContent: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
-                Image(systemName: "line.3.horizontal")
-                    .font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary)
-                    .help("Drag to rearrange terminal")
-                    .accessibilityLabel("Drag to rearrange terminal")
-                    .onDrag {
-                        paneDrag.begin(session.id)
-                        let provider = NSItemProvider()
-                        provider.registerDataRepresentation(
-                            forTypeIdentifier: PaneDragState.contentType.identifier, visibility: .ownProcess
-                        ) { completion in
-                            completion(Data(session.id.uuidString.utf8), nil)
-                            return nil
-                        }
-                        return provider
-                    } preview: {
-                        Label(session.displayTitle, systemImage: "terminal")
-                            .font(.system(size: 12, weight: .medium))
-                            .padding(10)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                    }
                 Image(systemName: "folder").foregroundStyle(ember.opacity(0.8))
                 Text(shortPath).lineLimit(1).truncationMode(.middle)
                 Spacer()
@@ -253,9 +298,26 @@ struct SessionPane: View {
             }
             .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
             .padding(.horizontal, 12).frame(height: 39)
+            .help("Drag this title bar to move the terminal")
             .contentShape(Rectangle()).onTapGesture {
                 session.terminal.window?.makeFirstResponder(session.terminal)
                 workspace.select(session)
+            }
+            .onDrag {
+                paneDrag.begin(session.id)
+                let provider = NSItemProvider()
+                provider.registerDataRepresentation(
+                    forTypeIdentifier: PaneDragState.contentType.identifier, visibility: .ownProcess
+                ) { completion in
+                    completion(Data(session.id.uuidString.utf8), nil)
+                    return nil
+                }
+                return provider
+            } preview: {
+                Label(session.displayTitle, systemImage: "terminal")
+                    .font(.system(size: 12, weight: .medium))
+                    .padding(10)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
             }
             Rectangle().fill(.white.opacity(0.065)).frame(height: 1)
             TerminalSurface(session: session).padding(10)

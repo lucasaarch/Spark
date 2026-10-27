@@ -173,6 +173,70 @@ struct WorkspaceTerminalHost: NSViewRepresentable {
     }
 }
 
+final class WorkspaceContentHost: NSHostingView<ContentView> {
+    private let workspace: Workspace
+
+    convenience init(workspace: Workspace, catalog: WorkspaceStore) {
+        self.init(rootView: ContentView(workspace: workspace, catalog: catalog))
+    }
+
+    required init(rootView: ContentView) {
+        workspace = rootView.workspace
+        super.init(rootView: rootView)
+        let type = NSPasteboard.PasteboardType(PaneDragState.contentType.identifier)
+        registerForDraggedTypes([type])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation { updateTabTarget(sender) }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation { updateTabTarget(sender) }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) { workspace.paneDrag.clearTabTarget() }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        tabTarget(for: sender) != nil
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        guard let source = draggedPaneID(in: sender), let target = tabTarget(for: sender) else { return false }
+        return workspace.movePane(source, toTab: target)
+    }
+
+    private func updateTabTarget(_ info: NSDraggingInfo) -> NSDragOperation {
+        guard let target = tabTarget(for: info) else {
+            workspace.paneDrag.clearTabTarget()
+            return []
+        }
+        workspace.paneDrag.showTabTarget(target)
+        return .move
+    }
+
+    private func tabTarget(for info: NSDraggingInfo) -> UUID? {
+        guard let source = draggedPaneID(in: info), let window else { return nil }
+        let windowPoint = window.convertPoint(fromScreen: info.draggingLocation)
+        let localPoint = convert(windowPoint, from: nil)
+        let point = CGPoint(
+            x: localPoint.x - bounds.minX,
+            y: isFlipped ? localPoint.y - bounds.minY : bounds.maxY - localPoint.y)
+        guard let target = workspace.paneDrag.tabID(at: point), workspace.canMovePane(source, toTab: target) else {
+            return nil
+        }
+        return target
+    }
+
+    private func draggedPaneID(in info: NSDraggingInfo) -> UUID? {
+        guard workspace.paneDrag.sourceID != nil else { return nil }
+        let type = NSPasteboard.PasteboardType(PaneDragState.contentType.identifier)
+        guard let data = info.draggingPasteboard.data(forType: type),
+            let value = String(data: data, encoding: .utf8),
+            let id = UUID(uuidString: value), id == workspace.paneDrag.sourceID
+        else { return nil }
+        return id
+    }
+}
+
 private final class PaneDropContainer: NSView {
     var onDraggingUpdated: ((NSDraggingInfo) -> NSDragOperation)?
     var onDraggingExited: (() -> Void)?
@@ -228,6 +292,7 @@ final class WorkspaceSplitView: NSSplitView, NSSplitViewDelegate {
         defer { updating = false }
         isVertical = axis == .vertical
         self.ratio = ratio
+        for child in children { child.isHidden = false }
         if arrangedSubviews.count != children.count || zip(arrangedSubviews, children).contains(where: { $0 !== $1 }) {
             for child in arrangedSubviews { child.removeFromSuperview() }
             for child in children { child.removeFromSuperview(); addArrangedSubview(child) }
