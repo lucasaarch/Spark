@@ -131,7 +131,11 @@ private struct SessionTab: View {
                     Text(session.displayTitle).lineLimit(1).truncationMode(.middle)
                         .frame(maxWidth: 180, alignment: .leading)
                     if paneCount > 1 { Text("\(paneCount)").font(.system(size: 9)).foregroundStyle(.secondary) }
-                }.padding(.vertical, 10).padding(.leading, 12)
+                }
+                .padding(.vertical, 10)
+                .padding(.leading, 12)
+                .padding(.trailing, 18)
+                .contentShape(Rectangle())
             }.buttonStyle(.plain).accessibilityLabel(
                 "Select \(session.displayTitle)\(session.agent.map { ", \($0.provider.name), \($0.label)" } ?? "")")
             Button(action: close) {
