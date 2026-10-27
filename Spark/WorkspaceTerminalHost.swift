@@ -7,7 +7,7 @@ struct WorkspaceTerminalHost: NSViewRepresentable {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var workspace: Workspace
     func makeCoordinator() -> Coordinator { Coordinator(workspace: workspace) }
-    func makeNSView(context: Context) -> NSView { NSView() }
+    func makeNSView(context: Context) -> NSView { context.coordinator.makeContainer() }
     func updateNSView(_ view: NSView, context: Context) {
         context.coordinator.update(view, reduceMotion: reduceMotion)
     }
@@ -23,6 +23,70 @@ struct WorkspaceTerminalHost: NSViewRepresentable {
         init(workspace: Workspace) {
             self.workspace = workspace
             paneLayoutAnimationID = workspace.paneLayoutAnimationID
+        }
+
+        func makeContainer() -> NSView {
+            let container = PaneDropContainer()
+            installDropHandling(on: container)
+            return container
+        }
+
+        private func installDropHandling(on container: PaneDropContainer) {
+            container.onDraggingUpdated = { [weak self, weak container] info in
+                guard let self, let container else { return [] }
+                return self.updateDropPreview(info, in: container)
+            }
+            container.onDraggingExited = { [weak self] in self?.workspace.paneDrag.clearPreview() }
+            container.onPrepareDrop = { [weak self] info in self?.canPerformDrop(info) ?? false }
+            container.onPerformDrop = { [weak self] info in self?.performDrop(info) ?? false }
+        }
+
+        private func updateDropPreview(_ info: NSDraggingInfo, in container: NSView) -> NSDragOperation {
+            let pasteboardType = NSPasteboard.PasteboardType(PaneDragState.contentType.identifier)
+            guard let source = workspace.paneDrag.sourceID,
+                info.draggingPasteboard.availableType(from: [pasteboardType]) != nil,
+                let window = container.window
+            else {
+                workspace.paneDrag.clearPreview()
+                return []
+            }
+            let windowPoint = window.convertPoint(fromScreen: info.draggingLocation)
+            let containerPoint = container.convert(windowPoint, from: nil)
+            for id in workspace.visibleSessionIDs {
+                guard let pane = panes[id] else { continue }
+                let point = pane.convert(containerPoint, from: container)
+                guard pane.bounds.contains(point), workspace.canMovePane(source, onto: id) else { continue }
+                let y = pane.isFlipped ? point.y - pane.bounds.minY : pane.bounds.maxY - point.y
+                let size = pane.bounds.size
+                workspace.paneDrag.showPreview(
+                    PaneDropPreview(
+                        targetID: id,
+                        zone: .at(CGPoint(x: point.x - pane.bounds.minX, y: y), in: size)))
+                return .move
+            }
+            workspace.paneDrag.clearPreview()
+            return []
+        }
+
+        private func canPerformDrop(_ info: NSDraggingInfo) -> Bool {
+            guard let source = workspace.paneDrag.sourceID,
+                let preview = workspace.paneDrag.preview,
+                let value = draggedPaneID(in: info)
+            else { return false }
+            return UUID(uuidString: value) == source && workspace.canMovePane(source, onto: preview.targetID)
+        }
+
+        private func performDrop(_ info: NSDraggingInfo) -> Bool {
+            guard canPerformDrop(info), let source = workspace.paneDrag.sourceID,
+                let preview = workspace.paneDrag.preview
+            else { return false }
+            return workspace.movePane(source, onto: preview.targetID, zone: preview.zone)
+        }
+
+        private func draggedPaneID(in info: NSDraggingInfo) -> String? {
+            let type = NSPasteboard.PasteboardType(PaneDragState.contentType.identifier)
+            guard let data = info.draggingPasteboard.data(forType: type) else { return nil }
+            return String(data: data, encoding: .utf8)
         }
 
         func update(_ container: NSView, reduceMotion: Bool) {
@@ -106,6 +170,39 @@ struct WorkspaceTerminalHost: NSViewRepresentable {
                 return split
             }
         }
+    }
+}
+
+private final class PaneDropContainer: NSView {
+    var onDraggingUpdated: ((NSDraggingInfo) -> NSDragOperation)?
+    var onDraggingExited: (() -> Void)?
+    var onPrepareDrop: ((NSDraggingInfo) -> Bool)?
+    var onPerformDrop: ((NSDraggingInfo) -> Bool)?
+
+    init() {
+        super.init(frame: .zero)
+        let type = NSPasteboard.PasteboardType(PaneDragState.contentType.identifier)
+        registerForDraggedTypes([type])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        onDraggingUpdated?(sender) ?? []
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        onDraggingUpdated?(sender) ?? []
+    }
+
+    override func draggingExited(_ sender: NSDraggingInfo?) { onDraggingExited?() }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        onPrepareDrop?(sender) ?? false
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        onPerformDrop?(sender) ?? false
     }
 }
 

@@ -179,9 +179,6 @@ struct SessionPane: View {
         GeometryReader { geometry in
             paneContent
                 .frame(width: geometry.size.width, height: geometry.size.height)
-                .onDrop(
-                    of: [PaneDragState.contentType],
-                    delegate: PaneDropDelegate(targetID: session.id, size: geometry.size, workspace: workspace))
                 .overlay {
                     if let preview = paneDrag.preview, preview.targetID == session.id {
                         let rect = preview.zone.rect(in: geometry.size)
@@ -281,56 +278,6 @@ struct SessionPane: View {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let path = session.directory.path
         return path == home ? "~" : path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
-    }
-}
-
-private struct PaneDropDelegate: DropDelegate {
-    let targetID: UUID
-    let size: CGSize
-    let workspace: Workspace
-
-    func validateDrop(info: DropInfo) -> Bool {
-        guard let source = workspace.paneDrag.sourceID else { return false }
-        return workspace.canMovePane(source, onto: targetID)
-    }
-
-    func dropEntered(info: DropInfo) {
-        updatePreview(at: info.location)
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        updatePreview(at: info.location)
-        return DropProposal(operation: .move)
-    }
-
-    func dropExited(info: DropInfo) {
-        workspace.paneDrag.clearPreview(target: targetID)
-    }
-
-    func performDrop(info: DropInfo) -> Bool {
-        guard let source = workspace.paneDrag.sourceID,
-            workspace.canMovePane(source, onto: targetID),
-            let provider = info.itemProviders(for: [PaneDragState.contentType]).first
-        else { return false }
-        let zone = PaneDropZone.at(info.location, in: size)
-        provider.loadDataRepresentation(forTypeIdentifier: PaneDragState.contentType.identifier) { data, _ in
-            guard let data, let value = String(data: data, encoding: .utf8), UUID(uuidString: value) == source else {
-                DispatchQueue.main.async { workspace.paneDrag.clearPreview() }
-                return
-            }
-            DispatchQueue.main.async {
-                _ = workspace.movePane(source, onto: targetID, zone: zone)
-            }
-        }
-        return true
-    }
-
-    private func updatePreview(at point: CGPoint) {
-        guard let source = workspace.paneDrag.sourceID,
-            workspace.canMovePane(source, onto: targetID)
-        else { workspace.paneDrag.clearPreview(target: targetID); return }
-        workspace.paneDrag.showPreview(
-            PaneDropPreview(targetID: targetID, zone: .at(point, in: size)))
     }
 }
 
