@@ -1,0 +1,55 @@
+name: Bug report
+description: Report a reproducible problem in Spark.
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Please search existing issues first. Redact secrets, private paths, and conversation content. Report security vulnerabilities privately through the Security tab.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What is broken, and how does it affect your workflow?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Spark...
+        2. ...
+      description: Include whether it happens every time. If you do not know the exact steps, describe the state where it occurred.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      value: |
+        - Spark version or commit:
+        - macOS version:
+        - Architecture (Apple Silicon / Intel):
+        - Shell and prompt theme:
+        - Agent CLI and version, if applicable:
+        - Alias or wrapper, if applicable:
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence
+      description: Attach screenshots, recordings, or redacted logs. Keep unrelated terminal output private.

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/lucasaarch/Spark/security/advisories/new
+    about: Report sensitive security issues privately.
+  - name: User guide
+    url: https://github.com/lucasaarch/Spark/blob/main/docs/user-guide.md
+    about: Check supported workflows, shortcuts, and agent integration details.
