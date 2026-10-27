@@ -21,7 +21,9 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.horizontal, workspace.focusMode ? 8 : 16)
                 .padding(.top, workspace.focusMode ? 8 : 0)
-            if let session = workspace.selected { SessionFooter(session: session) }
+            if let session = workspace.selected {
+                SessionFooter(session: session, workspace: workspace, catalog: catalog)
+            }
         }
         .background {
             ZStack {
@@ -43,20 +45,10 @@ struct ContentView: View {
                 .foregroundStyle(ember)
                 .shadow(color: ember.opacity(0.3), radius: 14)
             Text("Spark").font(.system(size: 18, weight: .semibold, design: .rounded))
-            WorkspaceMenu(workspace: workspace, catalog: catalog)
             Spacer()
-            Text("LOCAL").font(.system(size: 9, weight: .semibold, design: .monospaced))
-                .tracking(1.5).foregroundStyle(.secondary)
-            Circle().fill(Color(red: 0.58, green: 0.79, blue: 0.64)).frame(width: 5, height: 5)
-            Rectangle().fill(.white.opacity(0.10)).frame(width: 1, height: 16).padding(.horizontal, 8)
-            tool("bell", notifications.enabled ? "Agent notifications enabled" : "Enable agent notifications") {
-                if notifications.enabled { workspace.showsSettings = true } else { notifications.setEnabled(true) }
-            }.disabled(notifications.requestingAuthorization)
-            tool("rectangle.split.2x1", "Split right · ⌘D") { workspace.split(.vertical) }.disabled(!workspace.canSplit)
-            tool("rectangle.split.1x2", "Split below · ⇧⌘D") { workspace.split(.horizontal) }.disabled(!workspace.canSplit)
+            LayoutPresetMenu(workspace: workspace)
             tool("folder.badge.plus", "Open folder…", action: workspace.openDirectory)
             tool("arrow.up.left.and.arrow.down.right", "Focus mode · ⇧⌘F") { workspace.focusMode = true }
-            tool("slider.horizontal.3", "Settings · ⌘,") { workspace.showsSettings = true }
         }
         .padding(.horizontal, 22).frame(height: 62)
     }
@@ -150,9 +142,6 @@ struct SessionPane: View {
                 Spacer()
                 if session.agent != nil {
                     AgentBadge(session: session)
-                } else {
-                    Text(URL(fileURLWithPath: session.shell).lastPathComponent)
-                    Text("/ login").foregroundStyle(.tertiary)
                 }
                 if workspace.visibleSessionIDs.count > 1 {
                     Button { workspace.close(session) } label: { Image(systemName: "xmark") }
@@ -165,7 +154,10 @@ struct SessionPane: View {
             }
             .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
             .padding(.horizontal, 12).frame(height: 39)
-            .contentShape(Rectangle()).onTapGesture { workspace.select(session) }
+            .contentShape(Rectangle()).onTapGesture {
+                session.terminal.window?.makeFirstResponder(session.terminal)
+                workspace.select(session)
+            }
             Rectangle().fill(.white.opacity(0.065)).frame(height: 1)
             TerminalSurface(session: session).padding(10)
             if session.status != .running && session.status != .ready {
@@ -191,17 +183,58 @@ struct SessionPane: View {
 
 private struct SessionFooter: View {
     @ObservedObject var session: TerminalSession
+    @ObservedObject var workspace: Workspace
+    @ObservedObject var catalog: WorkspaceStore
+
     var body: some View {
-        HStack(spacing: 8) {
-            Circle().fill(session.agent?.color ?? Color.green.opacity(0.7)).frame(width: 5, height: 5)
-            Text(session.agent.map { "\($0.provider.name) · \($0.label)" } ?? session.status.label)
-            Text("·").foregroundStyle(.quaternary)
-            Text(session.dimensions).monospacedDigit()
+        HStack(spacing: 10) {
+            WorkspaceMenu(workspace: workspace, catalog: catalog)
+            if workspace.visibleSessionIDs.count > 1,
+               let index = workspace.visibleSessionIDs.firstIndex(of: session.id) {
+                Text("Pane \(index + 1) of \(workspace.visibleSessionIDs.count)")
+                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
+            }
             Spacer()
-            Text("Split  ⌘D").padding(.trailing, 14)
+            Text("Switch panes  ⌃Tab").padding(.trailing, 14)
+            Text("New tab  ⌘T").padding(.trailing, 14)
             Text("Find  ⌘F")
-        }.font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
-            .padding(.horizontal, 22).frame(height: 34)
+        }
+        .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
+        .padding(.horizontal, 22).frame(height: 38)
+    }
+}
+
+private struct LayoutPresetMenu: View {
+    @ObservedObject var workspace: Workspace
+    var body: some View {
+        Menu {
+            Section("Two panes") {
+                preset(.twoColumns, icon: "rectangle.split.2x1")
+                preset(.twoRows, icon: "rectangle.split.1x2")
+            }
+            Section("Three panes") {
+                preset(.threeColumns, icon: "rectangle.split.3x1")
+                preset(.mainAndTwoRows, icon: "rectangle.split.2x2")
+            }
+            Section("Four panes") {
+                preset(.gridFour, icon: "square.grid.2x2")
+                preset(.mainAndThreeRows, icon: "rectangle.split.3x2")
+            }
+        } label: {
+            Image(systemName: "rectangle.split.2x1")
+                .frame(width: 28, height: 28)
+        }
+        .buttonStyle(ChromeButtonStyle())
+        .help("Split layout presets · ⌘D to split the focused pane")
+        .accessibilityLabel("Split layout presets")
+        .accessibilityIdentifier("paneLayouts")
+    }
+
+    private func preset(_ value: PanePreset, icon: String) -> some View {
+        Button { _ = workspace.apply(value) } label: {
+            Label(value.name, systemImage: icon)
+        }
+        .disabled(!workspace.canApply(value))
     }
 }
 
@@ -240,9 +273,17 @@ private struct WorkspaceMenu: View {
                 }
             }
         } label: {
-            Text(workspace.name).font(.system(size: 11, weight: .medium)).lineLimit(1).frame(maxWidth: 180)
+            HStack(spacing: 7) {
+                Image(systemName: "square.stack.3d.up").foregroundStyle(ember.opacity(0.9))
+                Text(workspace.name).font(.system(size: 10, weight: .medium)).lineLimit(1)
+                Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6)
+            .background(.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 7))
+            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.white.opacity(0.07)))
+            .contentShape(RoundedRectangle(cornerRadius: 7))
         }
-        .menuStyle(.borderlessButton).fixedSize().help("Saved workspaces")
+        .menuStyle(.borderlessButton).fixedSize().help("Saved workspaces · create, switch or rename")
         .alert("Rename Workspace", isPresented: $renaming) {
             TextField("Name", text: $name)
             Button("Cancel", role: .cancel) {}

@@ -256,6 +256,12 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
 /// Terminal output is untrusted: it may open web links, never arbitrary local URL schemes.
 final class SparkTerminalView: LocalProcessTerminalView {
     var onFocus: (() -> Void)?
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
+        onFocus?()
+    }
+
 
     override var hasFocus: Bool {
         didSet {

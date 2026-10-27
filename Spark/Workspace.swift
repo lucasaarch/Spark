@@ -62,15 +62,32 @@ final class Workspace: ObservableObject {
         return session
     }
 
+    func canApply(_ preset: PanePreset) -> Bool {
+        selected != nil && visibleSessionIDs.count - 1 + preset.extraCount <= 8
+    }
+
     @discardableResult
-    func split(_ axis: SplitAxis) -> TerminalSession? {
-        guard canSplit, let selected, let index = tabs.firstIndex(where: { $0.layout.sessionIDs.contains(selected.id) }) else { return nil }
-        let session = TerminalSession(directory: selected.directory)
-        register(session)
-        tabs[index].layout = tabs[index].layout.splitting(selected.id, with: session.id, axis: axis)
-        select(session)
+    func apply(_ preset: PanePreset) -> Bool {
+        guard canApply(preset), let current = selected,
+              let tabIndex = tabs.firstIndex(where: { $0.layout.sessionIDs.contains(current.id) }) else { return false }
+        let existingIDs = tabs[tabIndex].layout.sessionIDs
+        let reusedIDs = existingIDs.filter { $0 != current.id }.prefix(preset.extraCount)
+        let retainedIDs = Set([current.id] + reusedIDs)
+        let obsolete = sessions.filter { existingIDs.contains($0.id) && !retainedIDs.contains($0.id) }
+        if obsolete.contains(where: { $0.terminal.process.running }) && !Self.confirmClose() { return false }
+
+        let extras = (0..<(preset.extraCount - reusedIDs.count)).map { _ in
+            let session = TerminalSession(directory: current.directory)
+            register(session)
+            return session
+        }
+        let extraIDs = Array(reusedIDs) + extras.map(\.id)
+        tabs[tabIndex].layout = preset.makeLayout(current: current.id, extras: extraIDs)
+        tabs[tabIndex].activePaneID = extraIDs[0]
+        for session in obsolete { discard(session) }
+        selectedID = extraIDs[0]
         changed()
-        return session
+        return true
     }
 
     func select(_ session: TerminalSession) {
@@ -123,13 +140,17 @@ final class Workspace: ObservableObject {
             tabs[index].layout = layout
             if tabs[index].activePaneID == session.id { tabs[index].activePaneID = layout.sessionIDs[0] }
         } else { tabs.remove(at: index) }
+        discard(session)
+        if wasSelected { selectedID = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)].activePaneID }
+        changed()
+    }
+
+    private func discard(_ session: TerminalSession) {
         observations.removeValue(forKey: session.id)
         session.terminal.onFocus = nil
         session.stop()
         sessions.removeAll { $0.id == session.id }
         onSessionRemoved?(session.id)
-        if wasSelected { selectedID = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)].activePaneID }
-        changed()
     }
 
     func stopAll() {

@@ -62,6 +62,65 @@ indirect enum PaneLayout: Codable, Equatable {
     }
 }
 
+enum PanePreset: CaseIterable, Identifiable {
+    case twoColumns, twoRows, threeColumns, mainAndTwoRows, gridFour, mainAndThreeRows
+
+    var id: Self { self }
+    var name: String {
+        switch self {
+        case .twoColumns: "Two Columns"
+        case .twoRows: "Two Rows"
+        case .threeColumns: "Three Columns"
+        case .mainAndTwoRows: "Main and Two Stacked"
+        case .gridFour: "Grid of Four"
+        case .mainAndThreeRows: "Main and Three Stacked"
+        }
+    }
+    var extraCount: Int {
+        switch self {
+        case .twoColumns, .twoRows: 1
+        case .threeColumns, .mainAndTwoRows: 2
+        case .gridFour, .mainAndThreeRows: 3
+        }
+    }
+    private var layout: Layout {
+        switch self {
+        case .twoColumns: .split(.vertical, 0.5, .current, .extra(0))
+        case .twoRows: .split(.horizontal, 0.5, .current, .extra(0))
+        case .threeColumns:
+            .split(.vertical, 1.0 / 3.0, .current, .split(.vertical, 0.5, .extra(0), .extra(1)))
+        case .mainAndTwoRows:
+            .split(.vertical, 2.0 / 3.0, .current, .split(.horizontal, 0.5, .extra(0), .extra(1)))
+        case .gridFour:
+            .split(.vertical, 0.5,
+                   .split(.horizontal, 0.5, .current, .extra(0)),
+                   .split(.horizontal, 0.5, .extra(1), .extra(2)))
+        case .mainAndThreeRows:
+            .split(.vertical, 2.0 / 3.0, .current,
+                   .split(.horizontal, 1.0 / 3.0, .extra(0), .split(.horizontal, 0.5, .extra(1), .extra(2))))
+        }
+    }
+
+    func makeLayout(current: UUID, extras: [UUID]) -> PaneLayout {
+        layout.build(current: current, extras: extras)
+    }
+
+    private indirect enum Layout {
+        case current, extra(Int), split(SplitAxis, Double, Layout, Layout)
+
+        func build(current: UUID, extras: [UUID]) -> PaneLayout {
+            switch self {
+            case .current: .pane(current)
+            case .extra(let index): .pane(extras[index])
+            case .split(let axis, let ratio, let first, let second):
+                .split(id: UUID(), axis: axis, ratio: ratio,
+                       first: first.build(current: current, extras: extras),
+                       second: second.build(current: current, extras: extras))
+            }
+        }
+    }
+}
+
 struct WorkspaceTab: Identifiable, Codable, Equatable {
     var id = UUID()
     var layout: PaneLayout

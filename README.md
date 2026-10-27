@@ -40,7 +40,7 @@ The tests exercise real PTY output and termination, session ownership, tab selec
 | --- | --- |
 | New tab / window | ⌘T / ⌘N |
 | Close active pane (or tab) / window | ⌘W / ⇧⌘W |
-| Split right / below | ⌘D / ⇧⌘D |
+| Split focused pane right / below | ⌘D / ⇧⌘D |
 | Next pane | ⌃Tab |
 | Previous / next tab | ⇧⌘[ / ⇧⌘] |
 | Open folder | ⌘O |
@@ -51,15 +51,15 @@ The tests exercise real PTY output and termination, session ownership, tab selec
 
 ## Workspaces and split panes
 
-Use the workspace menu beside **Spark** to create, rename or reopen a workspace. Each window owns one workspace; opening an already open workspace brings its window forward. Changes are saved automatically, including tabs, pane titles, folders, split direction/proportions, selection, focus mode and window geometry. The next launch restores the windows that were open when you quit.
+Use the workspace switcher in the footer to create, rename or reopen a workspace. Each window owns one workspace; opening an already open workspace brings its window forward. Changes are saved automatically, including tabs, pane titles, folders, split direction/proportions, selection, focus mode and window geometry. The next launch restores the windows that were open when you quit.
 
-Split the active pane with **⌘D** (right) or **⇧⌘D** (below), drag a divider to resize, and use **⌃Tab** or click a terminal to move focus. A tab supports up to eight panes. Closing a pane expands its sibling without restarting the surviving shells. A tab's close button closes all of its panes, with confirmation for running processes. Right-click a tab to rename its active pane or restore its automatic title.
+Split the focused pane with **⌘D** and choose a preset from the toolbar menu: columns, rows, a three-pane layout, or a four-pane grid. The focused pane stays in the template and new panes open to its right or below. Drag dividers to resize; **⌃Tab** and clicking a terminal move focus. A tab supports up to eight panes. Closing a pane expands its sibling without restarting the surviving shells. A tab's close button closes all of its panes, with confirmation for running processes. Right-click a tab to rename its active pane or restore its automatic title.
 
 Layouts are stored atomically in `~/Library/Application Support/com.lucasarch.Spark/workspaces.json`, with private file permissions. Restoration starts **fresh shells**, not previous commands or agents; scrollback, prompts, credentials and conversation content are not stored. Missing directories fall back to your home folder. Unreadable or newer-format files are preserved and a visible error explains why saving is unavailable.
 
 ## Agent notifications
 
-Enable notifications using the **bell** in the toolbar or **Settings → Agent notifications**, then allow Spark in the macOS prompt. Spark uses Apple's [UserNotifications delegate](https://developer.apple.com/documentation/usernotifications/unusernotificationcenterdelegate) to handle delivery and clicks. If access is denied, allow Spark in System Settings → Notifications.
+Enable notifications in **Settings → Agent notifications** (⌘,), then allow Spark in the macOS prompt. Spark uses Apple's [UserNotifications delegate](https://developer.apple.com/documentation/usernotifications/unusernotificationcenterdelegate) to handle delivery and clicks. If access is denied, allow Spark in System Settings → Notifications.
 
 An agent's transition to completion, error or a request for approval/attention can generate an alert. Initial idle/done states and repeated progress updates stay quiet, as does the session currently focused in the active window. Notifications contain only the provider, status and pane title; one outstanding alert per session avoids flooding Notification Center. Clicking an alert activates its workspace, tab and pane. Support depends on the CLI reporting its activity through OSC 7501; system notification settings and Focus modes still govern visible delivery.
 

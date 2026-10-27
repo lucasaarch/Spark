@@ -102,8 +102,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         catalog.setOpenIDs(windows.map { $0.workspace.id })
         controller.showWindow(nil)
     }
-    @objc private func splitRight(_ sender: Any?) { workspace?.split(.vertical) }
-    @objc private func splitBelow(_ sender: Any?) { workspace?.split(.horizontal) }
+    @objc private func splitRight(_ sender: Any?) { workspace?.apply(.twoColumns) }
+    @objc private func splitBelow(_ sender: Any?) { workspace?.apply(.twoRows) }
     @objc private func nextPane(_ sender: Any?) { workspace?.selectNextPane() }
     @objc private func newTab(_ sender: Any?) { if let workspace { workspace.add() } else { newWindow(nil) } }
     @objc private func closeTab(_ sender: Any?) { if let session = workspace?.selected { workspace?.close(session) } }
