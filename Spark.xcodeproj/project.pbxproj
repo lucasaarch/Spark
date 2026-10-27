@@ -7,10 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		AC0000000000000000000001 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000002 /* LICENSE */; };
 		AA0000000000000000000001 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000003 /* SwiftTerm */; };
 		AA0000000000000000000002 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000004 /* Sparkle */; };
 		AB0000000000000000000001 /* Highlighter in Frameworks */ = {isa = PBXBuildFile; productRef = AB0000000000000000000002 /* Highlighter */; };
+		AC0000000000000000000001 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000002 /* LICENSE */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -31,13 +31,13 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		AC0000000000000000000002 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
 		A04DBDFB308FFA4900951B18 /* Spark.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Spark.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A04DBE08308FFA4A00951B18 /* SparkTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SparkTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A04DBE12308FFA4A00951B18 /* SparkUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SparkUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A04DBE7D3090376400951B18 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		A04DBE7F309037C100951B18 /* ci.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = ci.yml; sourceTree = "<group>"; };
 		A04DBE80309037C100951B18 /* release.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = release.yml; sourceTree = "<group>"; };
+		AC0000000000000000000002 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
