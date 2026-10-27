@@ -103,6 +103,52 @@ struct AgentMetricsTests {
         #expect(session.title == "Codex")
     }
 
+    @Test(arguments: ["codex", "claude", "cdx", "userClaude"])
+    func returningToPromptRestoresInputModesAfterCLIExit(command: String) async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let rc = fixture.folder.appendingPathComponent(".zshrc")
+        var startup = try String(contentsOf: rc, encoding: .utf8)
+        startup += "\nalias cdx='caveman codex'\nfunction userClaude { \"$SPARK_TEST_BIN/claude\" \"$@\"; }\n"
+        try startup.write(to: rc, atomically: true, encoding: .utf8)
+        let wrapper = fixture.folder.appendingPathComponent("caveman")
+        try "#!/bin/sh\nexec \"$@\"\n".write(to: wrapper, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapper.path)
+        // Simulate a CLI that leaves mouse tracking and nested Kitty modes enabled.
+        let cli = #"""
+        #!/bin/sh
+        printf '\033[>1u\033[>3u\033[?1003;1006hCLI_INPUT_READY\n'
+        IFS= read -r line
+        exit 7
+        """#
+        for name in ["codex", "claude"] {
+            try cli.write(to: fixture.folder.appendingPathComponent(name), atomically: false, encoding: .utf8)
+        }
+        let session = TerminalSession(directory: fixture.folder, shell: "/bin/zsh")
+        defer { session.stop() }
+        session.start(environment: fixture.environment(percent: 10))
+        try await wait { output(session).contains("STARTUP_READY") }
+        session.terminal.send(data: Array("\(command)\n".utf8)[...])
+        try await wait { output(session).contains("CLI_INPUT_READY") }
+        #expect(session.terminal.keyboardEnhancementFlags.rawValue == 3)
+        #expect(session.terminal.currentMouseMode == .anyEvent)
+        session.terminal.send(data: Array("exit\n".utf8)[...])
+        try await wait { session.terminal.keyboardEnhancementFlags.isEmpty }
+        #expect(session.terminal.currentMouseMode == .off)
+        // Moving the pointer after exit must not inject an escape sequence
+        // into the next shell command, and the CLI's exit status must survive.
+        let motion = try #require(NSEvent.mouseEvent(with: .mouseMoved,
+            location: NSPoint(x: 30, y: 30), modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+        session.terminal.mouseMoved(with: motion)
+        session.terminal.send(data: Array("printf 'CLI_STATUS:%s\\n' \"$?\"\n".utf8)[...])
+        try await wait { output(session).contains("CLI_STATUS:7") }
+        // A later pop must not resurrect a mode left on the stack.
+        session.terminal.send(data: Array("printf '\\033[<uSTACK_CHECKED\\n'\n".utf8)[...])
+        try await wait { output(session).contains("STACK_CHECKED") }
+        #expect(session.terminal.keyboardEnhancementFlags.isEmpty)
+    }
+
     private func output(_ session: TerminalSession) -> String {
         String(decoding: session.terminal.getBufferAsData(), as: UTF8.self)
     }

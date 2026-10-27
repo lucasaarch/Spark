@@ -71,6 +71,16 @@ final class AgentShellIntegration {
     private static var functions: String {
         return """
         if [[ -o interactive ]]; then
+          # Restore shell input before every prompt, including aliases that
+          # bypass our wrappers. Tracking and encoding are separate mouse modes;
+          # disabling only SGR encoding still sends pointer events to the shell.
+          # Pop the whole Kitty stack so a later pop cannot revive a stale mode.
+          function _spark_restore_input {
+            [[ -t 1 ]] && printf '\\033[?9;1000;1002;1003;1004;1005;1006;1015;1016l\\033[<999u'
+            return 0
+          }
+          typeset -ga precmd_functions
+          precmd_functions=(_spark_restore_input ${precmd_functions:#_spark_restore_input})
           path=("$SPARK_AGENT_BIN" "${path[@]}")
           export PATH
           rehash

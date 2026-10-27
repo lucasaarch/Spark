@@ -170,8 +170,8 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
         // SwiftTerm 1.99.1 can apply a queued backing-scale resize after a
         // newer AppKit layout. Reconcile on the next main turn, outside layout
         // and live dragging, using SwiftTerm's own grid/PTY sizing path.
-        Task { @MainActor [weak self] in
-            guard let self else { return }
+        Task { @MainActor [weak self, weak source] in
+            guard let self, let source else { return }
             if source.window != nil, !source.inLiveResize,
                source.frame.width > 0, source.frame.height > 0 {
                 source.setFrameSize(source.frame.size)
