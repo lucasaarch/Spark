@@ -20,6 +20,14 @@ struct SparkApp {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var windows: [TerminalWindowController] = []
+    private let catalog: WorkspaceStore = {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["SPARK_UI_TESTING"] == "1" { return WorkspaceStore() }
+        #endif
+        return WorkspaceStore(fileURL: WorkspaceStore.defaultURL)
+    }()
+    private lazy var notifications = AgentNotifications()
+    private var terminating = false
     private lazy var updater = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
     private var workspace: Workspace? { (NSApp.keyWindow?.windowController as? TerminalWindowController)?.workspace }
 
@@ -30,27 +38,73 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Unit tests load this executable as their host; do not spawn an unrelated login shell.
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         _ = updater
-        newWindow(nil)
+        catalog.openWorkspace = { [weak self] id in self?.openWorkspace(id) }
+        notifications.isViewingSession = { [weak self] workspaceID, sessionID in
+            guard NSApp.isActive, let controller = self?.windows.first(where: { $0.workspace.id == workspaceID }),
+                  let window = controller.window else { return false }
+            return window.isKeyWindow && !window.isMiniaturized && window.occlusionState.contains(.visible)
+                && controller.workspace.selectedID == sessionID
+        }
+        notifications.activateSession = { [weak self] workspaceID, sessionID in
+            guard let self else { return }
+            // A stale notification must not manufacture a missing session.
+            let exists = self.windows.contains { $0.workspace.id == workspaceID && $0.workspace.sessions.contains { $0.id == sessionID } }
+                || self.catalog.workspaces.contains { $0.id == workspaceID && $0.sessions.contains { $0.id == sessionID } }
+            guard exists else { return }
+            self.openWorkspace(workspaceID)
+            if let controller = self.windows.first(where: { $0.workspace.id == workspaceID }),
+               let session = controller.workspace.sessions.first(where: { $0.id == sessionID }) {
+                controller.workspace.select(session)
+                controller.window?.makeFirstResponder(session.terminal)
+                NSApp.activate(ignoringOtherApps: true)
+            }
+        }
+        let ids = catalog.openIDs.isEmpty ? Array(catalog.workspaces.suffix(1).map(\.id)) : catalog.openIDs
+        if ids.isEmpty { newWindow(nil) } else { ids.forEach { openWorkspace($0) } }
         NSApp.activate(ignoringOtherApps: true)
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { newWindow(nil) }
+        if !flag { openWorkspace(catalog.workspaces.last?.id) }
         return true
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         if windows.contains(where: { $0.workspace.hasRunningSessions }) && !Workspace.confirmClose() { return .terminateCancel }
-        windows.forEach { $0.workspace.stopAll() }
+        terminating = true
+        windows.forEach { catalog.save($0.workspace.snapshot()) }
+        catalog.setOpenIDs(windows.map { $0.workspace.id })
+        catalog.flush()
+        windows.forEach { $0.prepareForTermination() }
         return .terminateNow
     }
 
-    @objc func newWindow(_ sender: Any?) {
-        let controller = TerminalWindowController()
-        controller.onClose = { [weak self, weak controller] in self?.windows.removeAll { $0 === controller } }
+    @objc func newWindow(_ sender: Any?) { openWorkspace(nil) }
+
+    private func openWorkspace(_ id: UUID?) {
+        if let existing = windows.first(where: { $0.workspace.id == id }) {
+            existing.showWindow(nil)
+            existing.window?.makeKeyAndOrderFront(nil)
+            return
+        }
+        let snapshot = catalog.workspaces.first { $0.id == id }
+        let workspace = Workspace(snapshot: snapshot, name: "Workspace \(catalog.workspaces.count + 1)")
+        let controller = TerminalWindowController(frameName: "SparkWorkspace-" + workspace.id.uuidString,
+            workspace: workspace, catalog: catalog, notifications: notifications, restoredFrame: snapshot?.windowFrame)
+        controller.onClose = { [weak self, weak controller] in
+            guard let self, !self.terminating else { return }
+            self.windows.removeAll { $0 === controller }
+            self.catalog.setOpenIDs(self.windows.map { $0.workspace.id })
+            self.catalog.flush()
+        }
         windows.append(controller)
+        catalog.save(workspace.snapshot())
+        catalog.setOpenIDs(windows.map { $0.workspace.id })
         controller.showWindow(nil)
     }
+    @objc private func splitRight(_ sender: Any?) { workspace?.split(.vertical) }
+    @objc private func splitBelow(_ sender: Any?) { workspace?.split(.horizontal) }
+    @objc private func nextPane(_ sender: Any?) { workspace?.selectNextPane() }
     @objc private func newTab(_ sender: Any?) { if let workspace { workspace.add() } else { newWindow(nil) } }
     @objc private func closeTab(_ sender: Any?) { if let session = workspace?.selected { workspace?.close(session) } }
     @objc private func openFolder(_ sender: Any?) { workspace?.openDirectory() }
@@ -69,6 +123,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if [#selector(splitRight(_:)), #selector(splitBelow(_:))].contains(menuItem.action) { return workspace?.canSplit == true }
+        if menuItem.action == #selector(nextPane(_:)) { return (workspace?.visibleSessionIDs.count ?? 0) > 1 }
         if menuItem.action == #selector(updates(_:)) { return updater.updater.canCheckForUpdates }
         if [#selector(newWindow(_:)), #selector(newTab(_:)), #selector(settings(_:))].contains(menuItem.action) { return true }
         return workspace != nil
@@ -111,7 +167,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         item(shell, "New Tab", #selector(newTab(_:)), "t", target: self)
         item(shell, "Open Folder…", #selector(openFolder(_:)), "o", target: self)
         shell.addItem(.separator())
-        item(shell, "Close Tab", #selector(closeTab(_:)), "w", target: self)
+        item(shell, "Split Right", #selector(splitRight(_:)), "d", target: self)
+        item(shell, "Split Below", #selector(splitBelow(_:)), "d", [.command, .shift], target: self)
+        item(shell, "Next Pane", #selector(nextPane(_:)), "\t", [.control], target: self)
+        shell.addItem(.separator())
+        item(shell, "Close Pane or Tab", #selector(closeTab(_:)), "w", target: self)
         item(shell, "Close Window", #selector(NSWindow.performClose(_:)), "w", [.command, .shift])
         let edit = section("Edit")
         item(edit, "Copy", #selector(NSText.copy(_:)), "c")
@@ -139,16 +199,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
 @MainActor
 final class TerminalWindowController: NSWindowController, NSWindowDelegate {
-    let workspace = Workspace()
+    let workspace: Workspace
+    private let catalog: WorkspaceStore
+    private let notifications: AgentNotifications
     var onClose: (() -> Void)?
     private let frameName: NSWindow.FrameAutosaveName
+    private var terminating = false
 
-    init(frameName: NSWindow.FrameAutosaveName = "SparkTerminalWindow") {
+    init(frameName: NSWindow.FrameAutosaveName = "SparkTerminalWindow", workspace: Workspace? = nil,
+         catalog: WorkspaceStore? = nil, notifications: AgentNotifications? = nil, restoredFrame: String? = nil) {
         self.frameName = frameName
+        self.workspace = workspace ?? Workspace()
+        self.catalog = catalog ?? WorkspaceStore()
+        self.notifications = notifications ?? AgentNotifications()
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 740),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         super.init(window: window)
-        window.title = "Spark"
+        window.title = "Spark — " + self.workspace.name
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
         window.appearance = NSAppearance(named: .darkAqua)
@@ -156,31 +223,68 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         window.minSize = NSSize(width: 620, height: 400)
         window.isReleasedWhenClosed = false
         shouldCascadeWindows = false
+        let workspace = self.workspace
         workspace.window = window
-        workspace.add()
-        window.contentView = NSHostingView(rootView: ContentView(workspace: workspace))
+        if workspace.sessions.isEmpty { workspace.add() }
+        window.contentView = NSHostingView(rootView: ContentView(workspace: workspace, catalog: self.catalog, notifications: self.notifications))
         // Restore after installing content, and never center over a saved frame.
-        if !window.setFrameUsingName(frameName) { window.center() }
+        if let restoredFrame {
+            let frame = NSRectFromString(restoredFrame)
+            if frame.width.isFinite, frame.height.isFinite, frame.minX.isFinite, frame.minY.isFinite,
+               frame.width >= 620, frame.height >= 400,
+               let screen = NSScreen.screens.first(where: { $0.visibleFrame.intersects(frame) }) {
+                var visible = frame
+                visible.size.width = min(frame.width, screen.visibleFrame.width)
+                visible.size.height = min(frame.height, screen.visibleFrame.height)
+                visible.origin.x = min(max(frame.minX, screen.visibleFrame.minX), screen.visibleFrame.maxX - visible.width)
+                visible.origin.y = min(max(frame.minY, screen.visibleFrame.minY), screen.visibleFrame.maxY - visible.height)
+                window.setFrame(visible, display: false)
+            } else { window.center() }
+        } else if !window.setFrameUsingName(frameName), !window.setFrameUsingName("SparkTerminalWindow") { window.center() }
         window.setFrameAutosaveName(frameName)
+        workspace.lastWindowFrame = NSStringFromRect(window.frame)
         window.delegate = self
+        workspace.onChange = { [weak workspace, weak window, weak catalog = self.catalog] in
+            guard let workspace else { return }
+            window?.title = "Spark — " + workspace.name
+            catalog?.save(workspace.snapshot())
+        }
+        workspace.onAgentChange = { [weak notifications = self.notifications, weak workspace] session, activity in
+            guard let workspace else { return }
+            notifications?.observe(activity, session: session, workspaceID: workspace.id)
+        }
+        workspace.onSessionRemoved = { [weak notifications = self.notifications] id in notifications?.removeSession(id) }
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         !workspace.hasRunningSessions || Workspace.confirmClose()
     }
     func windowWillClose(_ notification: Notification) {
-        saveFrame()
+        if !terminating {
+            saveFrame()
+            catalog.save(workspace.snapshot())
+            catalog.flush()
+        }
+        workspace.onChange = nil
         workspace.stopAll()
         onClose?()
+    }
+
+    func prepareForTermination() {
+        terminating = true
+        workspace.onChange = nil
+        workspace.stopAll()
     }
 
     func windowDidMove(_ notification: Notification) { saveFrame() }
     func windowDidResize(_ notification: Notification) { saveFrame() }
 
     private func saveFrame() {
-        guard let window, !window.styleMask.contains(.fullScreen) else { return }
+        guard !terminating, let window, !window.styleMask.contains(.fullScreen) else { return }
         // AppKit permits only one live window to own an autosave name. Explicit
         // saves also remember the last frame when another Spark window moves.
         window.saveFrame(usingName: frameName)
+        workspace.lastWindowFrame = NSStringFromRect(window.frame)
+        catalog.save(workspace.snapshot())
     }
 }

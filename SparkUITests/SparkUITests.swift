@@ -5,6 +5,7 @@ final class SparkUITests: XCTestCase {
     func testTabsFocusSettingsAndRealShell() throws {
         continueAfterFailure = false
         let app = XCUIApplication()
+        app.launchEnvironment["SPARK_UI_TESTING"] = "1"
         app.launch()
         XCTAssertTrue(app.buttons["newTab"].waitForExistence(timeout: 10))
         app.typeText("printf 'SPARK_UI_%s\\n' PROOF\n")

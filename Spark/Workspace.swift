@@ -3,30 +3,104 @@ import Combine
 
 @MainActor
 final class Workspace: ObservableObject {
+    let id: UUID
+    @Published var name: String { didSet { changed() } }
     @Published private(set) var sessions: [TerminalSession] = []
-    @Published var selectedID: UUID?
+    @Published private(set) var tabs: [WorkspaceTab] = []
+    @Published var selectedID: UUID? { didSet { changed() } }
     @Published var showsSettings = false
-    @Published var focusMode = false
+    @Published var focusMode = false { didSet { changed() } }
     weak var window: NSWindow?
+    var lastWindowFrame: String?
+    var onChange: (() -> Void)?
+    var onAgentChange: ((TerminalSession, AgentActivity?) -> Void)?
+    var onSessionRemoved: ((UUID) -> Void)?
+    private var observations: [UUID: Set<AnyCancellable>] = [:]
+    private var stopping = false
+
+    init(snapshot: WorkspaceSnapshot? = nil, name: String = "Workspace") {
+        id = snapshot?.id ?? UUID()
+        self.name = AgentMetrics.clean(snapshot?.name ?? name) ?? "Workspace"
+        guard let snapshot, snapshot.isValid else { return }
+        tabs = snapshot.tabs
+        selectedID = snapshot.selectedID ?? tabs.first?.activePaneID
+        focusMode = snapshot.focusMode
+        lastWindowFrame = snapshot.windowFrame
+        for record in snapshot.sessions {
+            var isDirectory: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: record.directory, isDirectory: &isDirectory)
+            let directory = exists && isDirectory.boolValue ? URL(fileURLWithPath: record.directory) : FileManager.default.homeDirectoryForCurrentUser
+            let session = TerminalSession(id: record.id, directory: directory)
+            session.customTitle = AgentMetrics.clean(record.customTitle)
+            register(session)
+        }
+    }
 
     var selected: TerminalSession? { sessions.first { $0.id == selectedID } }
+    var selectedTab: WorkspaceTab? {
+        guard let selectedID else { return nil }
+        return tabs.first { $0.layout.sessionIDs.contains(selectedID) }
+    }
+    var visibleSessionIDs: [UUID] { selectedTab?.layout.sessionIDs ?? [] }
+    var canSplit: Bool { selected != nil && visibleSessionIDs.count < 8 }
     var hasRunningSessions: Bool { sessions.contains { $0.terminal.process.running } }
+
+    func snapshot() -> WorkspaceSnapshot {
+        WorkspaceSnapshot(id: id, name: name, tabs: tabs,
+            sessions: sessions.map { .init(id: $0.id, directory: $0.directory.path, customTitle: $0.customTitle) },
+            selectedID: selectedID, focusMode: focusMode,
+            windowFrame: window.flatMap { $0.styleMask.contains(.fullScreen) ? lastWindowFrame : NSStringFromRect($0.frame) } ?? lastWindowFrame)
+    }
 
     @discardableResult
     func add(directory: URL? = nil) -> TerminalSession {
         let session = TerminalSession(directory: directory ?? selected?.directory ?? FileManager.default.homeDirectoryForCurrentUser)
-        sessions.append(session)
-        selectedID = session.id
+        register(session)
+        tabs.append(WorkspaceTab(layout: .pane(session.id), activePaneID: session.id))
+        select(session)
+        changed()
+        return session
+    }
+
+    @discardableResult
+    func split(_ axis: SplitAxis) -> TerminalSession? {
+        guard canSplit, let selected, let index = tabs.firstIndex(where: { $0.layout.sessionIDs.contains(selected.id) }) else { return nil }
+        let session = TerminalSession(directory: selected.directory)
+        register(session)
+        tabs[index].layout = tabs[index].layout.splitting(selected.id, with: session.id, axis: axis)
+        select(session)
+        changed()
         return session
     }
 
     func select(_ session: TerminalSession) {
-        selectedID = session.id
+        guard let index = tabs.firstIndex(where: { $0.layout.sessionIDs.contains(session.id) }) else { return }
+        if tabs[index].activePaneID != session.id { tabs[index].activePaneID = session.id }
+        if selectedID != session.id { selectedID = session.id }
+    }
+
+    func selectTab(_ tab: WorkspaceTab) {
+        if let session = sessions.first(where: { $0.id == tab.activePaneID }) { select(session) }
     }
 
     func selectNext(_ offset: Int) {
-        guard !sessions.isEmpty, let index = sessions.firstIndex(where: { $0.id == selectedID }) else { return }
-        selectedID = sessions[(index + offset + sessions.count) % sessions.count].id
+        guard !tabs.isEmpty, let index = tabs.firstIndex(where: { $0.id == selectedTab?.id }) else { return }
+        selectTab(tabs[(index + offset + tabs.count) % tabs.count])
+    }
+
+    func selectNextPane() {
+        let ids = visibleSessionIDs
+        guard let selectedID, let index = ids.firstIndex(of: selectedID),
+              let session = sessions.first(where: { $0.id == ids[(index + 1) % ids.count] }) else { return }
+        select(session)
+    }
+
+    func setRatio(_ ratio: Double, splitID: UUID) {
+        guard ratio.isFinite else { return }
+        for index in tabs.indices {
+            let updated = tabs[index].layout.settingRatio(ratio, for: splitID)
+            if updated != tabs[index].layout { tabs[index].layout = updated; changed(); return }
+        }
     }
 
     func close(_ session: TerminalSession) {
@@ -35,21 +109,58 @@ final class Workspace: ObservableObject {
         if sessions.isEmpty { window?.performClose(nil) }
     }
 
-    /// Removal is separate from UI confirmation so lifetime and selection invariants are testable.
+    func closeTab(_ tab: WorkspaceTab) {
+        let targets = sessions.filter { tab.layout.sessionIDs.contains($0.id) }
+        if targets.contains(where: { $0.terminal.process.running }) && !Self.confirmClose() { return }
+        targets.forEach(remove)
+        if sessions.isEmpty { window?.performClose(nil) }
+    }
+
     func remove(_ session: TerminalSession) {
-        guard let index = sessions.firstIndex(where: { $0.id == session.id }) else { return }
+        guard let index = tabs.firstIndex(where: { $0.layout.sessionIDs.contains(session.id) }) else { return }
+        let wasSelected = selectedID == session.id
+        if let layout = tabs[index].layout.removing(session.id) {
+            tabs[index].layout = layout
+            if tabs[index].activePaneID == session.id { tabs[index].activePaneID = layout.sessionIDs[0] }
+        } else { tabs.remove(at: index) }
+        observations.removeValue(forKey: session.id)
+        session.terminal.onFocus = nil
         session.stop()
-        sessions.remove(at: index)
-        if selectedID == session.id {
-            selectedID = sessions.isEmpty ? nil : sessions[min(index, sessions.count - 1)].id
-        }
+        sessions.removeAll { $0.id == session.id }
+        onSessionRemoved?(session.id)
+        if wasSelected { selectedID = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)].activePaneID }
+        changed()
     }
 
     func stopAll() {
-        for session in sessions { session.stop() }
+        stopping = true
+        observations.removeAll()
+        for session in sessions { session.terminal.onFocus = nil; session.stop(); onSessionRemoved?(session.id) }
         sessions.removeAll()
+        tabs.removeAll()
         selectedID = nil
+        stopping = false
     }
+
+    private func register(_ session: TerminalSession) {
+        sessions.append(session)
+        session.terminal.onFocus = { [weak self, weak session] in
+            guard let session else { return }; self?.select(session)
+        }
+        var subscriptions = Set<AnyCancellable>()
+        session.$directory.dropFirst().sink { [weak self] _ in self?.scheduleChange() }.store(in: &subscriptions)
+        session.$customTitle.dropFirst().sink { [weak self] _ in self?.scheduleChange() }.store(in: &subscriptions)
+        session.$agent.dropFirst().sink { [weak self, weak session] activity in
+            guard let self, let session else { return }
+            self.onAgentChange?(session, activity)
+        }.store(in: &subscriptions)
+        observations[session.id] = subscriptions
+    }
+
+    private func scheduleChange() {
+        DispatchQueue.main.async { [weak self] in self?.changed() }
+    }
+    private func changed() { if !stopping { onChange?() } }
 
     static func confirmClose() -> Bool {
         let alert = NSAlert()

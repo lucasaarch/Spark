@@ -5,9 +5,11 @@ import SwiftTerm
 /// The session owns its PTY and view. SwiftUI may detach the view without ending the shell.
 @MainActor
 final class TerminalSession: ObservableObject, Identifiable, LocalProcessTerminalViewDelegate {
-    let id = UUID()
+    let id: UUID
     let terminal: SparkTerminalView
     let shell: String
+    @Published var customTitle: String?
+    var displayTitle: String { customTitle ?? title }
     @Published var title: String
     @Published var directory: URL
     @Published var dimensions = ""
@@ -34,7 +36,8 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
         }
     }
 
-    init(directory: URL = FileManager.default.homeDirectoryForCurrentUser, shell: String? = nil) {
+    init(id: UUID = UUID(), directory: URL = FileManager.default.homeDirectoryForCurrentUser, shell: String? = nil) {
+        self.id = id
         self.directory = directory
         self.shell = shell ?? Self.loginShell()
         title = URL(fileURLWithPath: self.shell).lastPathComponent
@@ -252,6 +255,18 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
 
 /// Terminal output is untrusted: it may open web links, never arbitrary local URL schemes.
 final class SparkTerminalView: LocalProcessTerminalView {
+    var onFocus: (() -> Void)?
+
+    override var hasFocus: Bool {
+        didSet {
+            guard hasFocus else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.window?.firstResponder === self else { return }
+                self.onFocus?()
+            }
+        }
+    }
+
     override func isAccessibilityElement() -> Bool { true }
     override func accessibilityRole() -> NSAccessibility.Role? { .textArea }
     override func accessibilityValue() -> Any? {
