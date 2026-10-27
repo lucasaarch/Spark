@@ -23,6 +23,7 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
     private var integratedProvider: AgentActivity.Provider?
     private var claudeMetricsFile: URL?
     private var integrationObservation: TerminalOscObservation?
+    var onExit: (() -> Void)?
 
     enum Status: Equatable {
         case ready, running, exited(Int32?), failed
@@ -115,6 +116,15 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
     func stop() {
         clearAgent()
         terminal.terminate()
+    }
+
+    var hasActiveCommand: Bool {
+        guard terminal.process.running else { return false }
+        let descriptor = terminal.process.childfd
+        let shell = terminal.process.shellPid
+        guard descriptor >= 0, shell > 0 else { return true }
+        let foreground = tcgetpgrp(descriptor)
+        return foreground < 0 || foreground != shell
     }
 
     func programStatusChanged(source: TerminalView, records: [TerminalProgramStatus]) {
@@ -241,6 +251,7 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
     func processTerminated(source: TerminalView, exitCode: Int32?) {
         clearAgent()
         status = .exited(exitCode)
+        onExit?()
     }
     func processFailedToStart(source: TerminalView, error: LocalProcessError) {
         clearAgent()

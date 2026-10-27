@@ -13,6 +13,7 @@ final class WorkspaceStore: ObservableObject {
     @Published private(set) var errorMessage: String?
     private(set) var openIDs: [UUID] = []
     var openWorkspace: ((UUID?) -> Void)?
+    var createWorkspace: ((String) -> Void)?
     private let fileURL: URL?
     private var saveTask: Task<Void, Never>?
     private var canWrite = true

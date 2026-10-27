@@ -80,17 +80,14 @@ final class WorkspaceSplitView: NSSplitView, NSSplitViewDelegate {
     init() {
         super.init(frame: .zero)
         dividerStyle = .thin
+        wantsLayer = true
+        layer?.backgroundColor = NSColor(srgbRed: 0.055, green: 0.063, blue: 0.078, alpha: 1).cgColor
         delegate = self
         setAccessibilityLabel("Resize terminal panes")
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    override var dividerThickness: CGFloat { 8 }
-    override func drawDivider(in rect: NSRect) {
-        NSColor.white.withAlphaComponent(0.08).setFill()
-        let line = isVertical ? NSRect(x: rect.midX, y: rect.minY + 12, width: 1, height: max(0, rect.height - 24))
-            : NSRect(x: rect.minX + 12, y: rect.midY, width: max(0, rect.width - 24), height: 1)
-        line.fill()
-    }
+    override var dividerThickness: CGFloat { 12 }
+    override func drawDivider(in rect: NSRect) {}
 
     func configure(axis: SplitAxis, ratio: Double, children: [NSView]) {
         updating = true

@@ -76,6 +76,16 @@ enum PanePreset: CaseIterable, Identifiable {
         case .mainAndThreeRows: "Main and Three Stacked"
         }
     }
+    var glyph: String {
+        switch self {
+        case .twoColumns: "▯│▯"
+        case .twoRows: "▱─▱"
+        case .threeColumns: "▯│▯│▯"
+        case .mainAndTwoRows: "▰│▱"
+        case .gridFour: "▱▱"
+        case .mainAndThreeRows: "▰│▱"
+        }
+    }
     var extraCount: Int {
         switch self {
         case .twoColumns, .twoRows: 1

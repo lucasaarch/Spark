@@ -15,6 +15,7 @@ final class Workspace: ObservableObject {
     var onChange: (() -> Void)?
     var onAgentChange: ((TerminalSession, AgentActivity?) -> Void)?
     var onSessionRemoved: ((UUID) -> Void)?
+    var onLastTerminalExit: (() -> Void)?
     private var observations: [UUID: Set<AnyCancellable>] = [:]
     private var stopping = false
 
@@ -43,7 +44,7 @@ final class Workspace: ObservableObject {
     }
     var visibleSessionIDs: [UUID] { selectedTab?.layout.sessionIDs ?? [] }
     var canSplit: Bool { selected != nil && visibleSessionIDs.count < 8 }
-    var hasRunningSessions: Bool { sessions.contains { $0.terminal.process.running } }
+    var hasActiveCommands: Bool { sessions.contains(where: \.hasActiveCommand) }
 
     func snapshot() -> WorkspaceSnapshot {
         WorkspaceSnapshot(id: id, name: name, tabs: tabs,
@@ -133,19 +134,17 @@ final class Workspace: ObservableObject {
     }
 
     func close(_ session: TerminalSession) {
-        if session.terminal.process.running && !Self.confirmClose() { return }
+        if session.hasActiveCommand && !Self.confirmClose() { return }
         remove(session)
-        if sessions.isEmpty { window?.performClose(nil) }
     }
 
     func closeTab(_ tab: WorkspaceTab) {
         let targets = sessions.filter { tab.layout.sessionIDs.contains($0.id) }
-        if targets.contains(where: { $0.terminal.process.running }) && !Self.confirmClose() { return }
-        targets.forEach(remove)
-        if sessions.isEmpty { window?.performClose(nil) }
+        if targets.contains(where: \.hasActiveCommand) && !Self.confirmClose() { return }
+        targets.forEach { remove($0) }
     }
 
-    func remove(_ session: TerminalSession) {
+    func remove(_ session: TerminalSession, exitedNaturally: Bool = false) {
         guard let index = tabs.firstIndex(where: { $0.layout.sessionIDs.contains(session.id) }) else { return }
         let wasSelected = selectedID == session.id
         if let layout = tabs[index].layout.removing(session.id) {
@@ -155,11 +154,16 @@ final class Workspace: ObservableObject {
         discard(session)
         if wasSelected { selectedID = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)].activePaneID }
         changed()
+        if sessions.isEmpty {
+            if exitedNaturally && tabs.isEmpty { onLastTerminalExit?() }
+            window?.performClose(nil)
+        }
     }
 
     private func discard(_ session: TerminalSession) {
         observations.removeValue(forKey: session.id)
         session.terminal.onFocus = nil
+        session.onExit = nil
         session.stop()
         sessions.removeAll { $0.id == session.id }
         onSessionRemoved?(session.id)
@@ -168,7 +172,12 @@ final class Workspace: ObservableObject {
     func stopAll() {
         stopping = true
         observations.removeAll()
-        for session in sessions { session.terminal.onFocus = nil; session.stop(); onSessionRemoved?(session.id) }
+        for session in sessions {
+            session.terminal.onFocus = nil
+            session.onExit = nil
+            session.stop()
+            onSessionRemoved?(session.id)
+        }
         sessions.removeAll()
         tabs.removeAll()
         selectedID = nil
@@ -179,6 +188,10 @@ final class Workspace: ObservableObject {
         sessions.append(session)
         session.terminal.onFocus = { [weak self, weak session] in
             guard let session else { return }; self?.select(session)
+        }
+        session.onExit = { [weak self, weak session] in
+            guard let self, let session else { return }
+            self.remove(session, exitedNaturally: true)
         }
         var subscriptions = Set<AnyCancellable>()
         session.$directory.dropFirst().sink { [weak self] _ in self?.scheduleChange() }.store(in: &subscriptions)
@@ -197,8 +210,8 @@ final class Workspace: ObservableObject {
 
     static func confirmClose() -> Bool {
         let alert = NSAlert()
-        alert.messageText = "Close active terminal sessions?"
-        alert.informativeText = "The shells and their running commands will be terminated. Any unsaved work in those commands may be lost."
+        alert.messageText = "Close terminals running commands?"
+        alert.informativeText = "Running commands will be terminated. Idle terminal shells close without confirmation."
         alert.alertStyle = .warning
         alert.addButton(withTitle: "Cancel")
         alert.addButton(withTitle: "Close Sessions")

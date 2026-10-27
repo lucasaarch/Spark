@@ -209,16 +209,16 @@ private struct LayoutPresetMenu: View {
     var body: some View {
         Menu {
             Section("Two panes") {
-                preset(.twoColumns, icon: "rectangle.split.2x1")
-                preset(.twoRows, icon: "rectangle.split.1x2")
+                preset(.twoColumns)
+                preset(.twoRows)
             }
             Section("Three panes") {
-                preset(.threeColumns, icon: "rectangle.split.3x1")
-                preset(.mainAndTwoRows, icon: "rectangle.split.2x2")
+                preset(.threeColumns)
+                preset(.mainAndTwoRows)
             }
             Section("Four panes") {
-                preset(.gridFour, icon: "square.grid.2x2")
-                preset(.mainAndThreeRows, icon: "rectangle.split.3x2")
+                preset(.gridFour)
+                preset(.mainAndThreeRows)
             }
         } label: {
             Image(systemName: "rectangle.split.2x1")
@@ -230,9 +230,10 @@ private struct LayoutPresetMenu: View {
         .accessibilityIdentifier("paneLayouts")
     }
 
-    private func preset(_ value: PanePreset, icon: String) -> some View {
+    private func preset(_ value: PanePreset) -> some View {
         Button { _ = workspace.apply(value) } label: {
-            Label(value.name, systemImage: icon)
+            Text(value.glyph).font(.system(size: 13, weight: .medium, design: .monospaced)).foregroundColor(ember)
+                + Text("  ") + Text(value.name)
         }
         .disabled(!workspace.canApply(value))
     }
@@ -259,12 +260,11 @@ private struct TerminalSurface: NSViewRepresentable {
 private struct WorkspaceMenu: View {
     @ObservedObject var workspace: Workspace
     @ObservedObject var catalog: WorkspaceStore
-    @State private var renaming = false
-    @State private var name = ""
+    @State private var namePrompt: WorkspaceNamePrompt?
     var body: some View {
         Menu {
-            Button("New Workspace") { catalog.openWorkspace?(nil) }
-            Button("Rename Workspace…") { name = workspace.name; renaming = true }
+            Button("New Workspace…") { namePrompt = WorkspaceNamePrompt(kind: .create, initialName: "") }
+            Button("Rename Workspace…") { namePrompt = WorkspaceNamePrompt(kind: .rename, initialName: workspace.name) }
             Divider()
             ForEach(catalog.workspaces) { saved in
                 Button { catalog.openWorkspace?(saved.id) } label: {
@@ -284,11 +284,66 @@ private struct WorkspaceMenu: View {
             .contentShape(RoundedRectangle(cornerRadius: 7))
         }
         .menuStyle(.borderlessButton).fixedSize().help("Saved workspaces · create, switch or rename")
-        .alert("Rename Workspace", isPresented: $renaming) {
-            TextField("Name", text: $name)
-            Button("Cancel", role: .cancel) {}
-            Button("Save") { workspace.name = AgentMetrics.clean(name) ?? "Workspace" }
+        .sheet(item: $namePrompt) { prompt in
+            WorkspaceNameDialog(prompt: prompt) { name in
+                switch prompt.kind {
+                case .create: catalog.createWorkspace?(name)
+                case .rename: workspace.name = name
+                }
+            }
         }
+    }
+}
+
+private struct WorkspaceNamePrompt: Identifiable {
+    enum Kind: Equatable { case create, rename }
+    let id = UUID()
+    let kind: Kind
+    let initialName: String
+    var title: String { kind == .create ? "New Workspace" : "Rename Workspace" }
+    var action: String { kind == .create ? "Create" : "Save" }
+}
+
+private struct WorkspaceNameDialog: View {
+    let prompt: WorkspaceNamePrompt
+    let save: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var focused: Bool
+    @State private var name: String
+
+    init(prompt: WorkspaceNamePrompt, save: @escaping (String) -> Void) {
+        self.prompt = prompt
+        self.save = save
+        _name = State(initialValue: prompt.initialName)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(spacing: 10) {
+                Image(systemName: "square.stack.3d.up.fill").foregroundStyle(ember)
+                Text(prompt.title).font(.title3.weight(.semibold))
+            }
+            TextField("Workspace name", text: $name)
+                .font(.system(size: 16))
+                .textFieldStyle(.roundedBorder)
+                .focused($focused)
+                .onSubmit(commit)
+            HStack(spacing: 10) {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button(prompt.action, action: commit).keyboardShortcut(.defaultAction).disabled(AgentMetrics.clean(name) == nil)
+            }
+        }
+        .padding(24)
+        .frame(width: 400)
+        .preferredColorScheme(.dark)
+        .onAppear { focused = true }
+    }
+
+    private func commit() {
+        guard let value = AgentMetrics.clean(name) else { return }
+        save(value)
+        dismiss()
     }
 }
 

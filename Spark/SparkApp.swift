@@ -20,6 +20,8 @@ struct SparkApp {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     private var windows: [TerminalWindowController] = []
+    private var workspaceCache: [UUID: Workspace] = [:]
+    private var workspaceOrder: [UUID] = []
     private let catalog: WorkspaceStore = {
         #if DEBUG
         if ProcessInfo.processInfo.environment["SPARK_UI_TESTING"] == "1" { return WorkspaceStore() }
@@ -38,7 +40,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         // Unit tests load this executable as their host; do not spawn an unrelated login shell.
         guard ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
         _ = updater
-        catalog.openWorkspace = { [weak self] id in self?.openWorkspace(id) }
+        workspaceOrder = catalog.openIDs
+        catalog.openWorkspace = { [weak self] id in self?.switchWorkspace(id) }
+        catalog.createWorkspace = { [weak self] name in self?.createWorkspace(name: name) }
         notifications.isViewingSession = { [weak self] workspaceID, sessionID in
             guard NSApp.isActive, let controller = self?.windows.first(where: { $0.workspace.id == workspaceID }),
                   let window = controller.window else { return false }
@@ -48,13 +52,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         notifications.activateSession = { [weak self] workspaceID, sessionID in
             guard let self else { return }
             // A stale notification must not manufacture a missing session.
-            let exists = self.windows.contains { $0.workspace.id == workspaceID && $0.workspace.sessions.contains { $0.id == sessionID } }
+            let exists = self.workspaceCache[workspaceID]?.sessions.contains { $0.id == sessionID } == true
                 || self.catalog.workspaces.contains { $0.id == workspaceID && $0.sessions.contains { $0.id == sessionID } }
             guard exists else { return }
-            self.openWorkspace(workspaceID)
-            if let controller = self.windows.first(where: { $0.workspace.id == workspaceID }),
-               let session = controller.workspace.sessions.first(where: { $0.id == sessionID }) {
-                controller.workspace.select(session)
+            self.switchWorkspace(workspaceID)
+            if let workspace = self.workspaceCache[workspaceID],
+               let session = workspace.sessions.first(where: { $0.id == sessionID }),
+               let controller = NSApp.keyWindow?.windowController as? TerminalWindowController ?? self.windows.first {
+                workspace.select(session)
                 controller.window?.makeFirstResponder(session.terminal)
                 NSApp.activate(ignoringOtherApps: true)
             }
@@ -65,41 +70,87 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if !flag { openWorkspace(catalog.workspaces.last?.id) }
+        if !flag { openWorkspace(workspaceOrder.last ?? catalog.workspaces.last?.id) }
         return true
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if windows.contains(where: { $0.workspace.hasRunningSessions }) && !Workspace.confirmClose() { return .terminateCancel }
+        if workspaceCache.values.contains(where: \.hasActiveCommands) && !Workspace.confirmClose() { return .terminateCancel }
         terminating = true
-        windows.forEach { catalog.save($0.workspace.snapshot()) }
-        catalog.setOpenIDs(windows.map { $0.workspace.id })
+        workspaceCache.values.forEach { catalog.save($0.snapshot()) }
+        catalog.setOpenIDs(workspaceOrder.filter { workspaceCache[$0] != nil })
         catalog.flush()
+        workspaceCache.values.forEach { $0.stopAll() }
         windows.forEach { $0.prepareForTermination() }
         return .terminateNow
     }
 
-    @objc func newWindow(_ sender: Any?) { openWorkspace(nil) }
+    @objc func newWindow(_ sender: Any?) {
+        let workspace = Workspace(name: "Workspace \(catalog.workspaces.count + 1)")
+        remember(workspace)
+        showWindow(for: workspace)
+    }
 
     private func openWorkspace(_ id: UUID?) {
-        if let existing = windows.first(where: { $0.workspace.id == id }) {
-            existing.showWindow(nil)
-            existing.window?.makeKeyAndOrderFront(nil)
-            return
-        }
+        let workspace = workspace(for: id)
+        if let controller = windows.first {
+            controller.switchWorkspace(to: workspace)
+            controller.showWindow(nil)
+            controller.window?.makeKeyAndOrderFront(nil)
+            catalog.setOpenIDs(workspaceOrder)
+        } else { showWindow(for: workspace) }
+    }
+
+    private func switchWorkspace(_ id: UUID?) {
+        guard let id else { return }
+        let workspace = workspace(for: id)
+        if let controller = NSApp.keyWindow?.windowController as? TerminalWindowController ?? windows.first {
+            controller.switchWorkspace(to: workspace)
+            controller.showWindow(nil)
+            controller.window?.makeKeyAndOrderFront(nil)
+        } else { showWindow(for: workspace) }
+        catalog.setOpenIDs(workspaceOrder)
+    }
+
+    private func createWorkspace(name: String) {
+        let workspace = Workspace(name: AgentMetrics.clean(name) ?? "Workspace")
+        remember(workspace)
+        if let controller = NSApp.keyWindow?.windowController as? TerminalWindowController ?? windows.first {
+            controller.switchWorkspace(to: workspace)
+        } else { showWindow(for: workspace) }
+        catalog.setOpenIDs(workspaceOrder)
+    }
+
+    private func workspace(for id: UUID?) -> Workspace {
+        if let id, let cached = workspaceCache[id] { return cached }
         let snapshot = catalog.workspaces.first { $0.id == id }
         let workspace = Workspace(snapshot: snapshot, name: "Workspace \(catalog.workspaces.count + 1)")
+        remember(workspace)
+        return workspace
+    }
+
+    private func remember(_ workspace: Workspace) {
+        if workspaceCache[workspace.id] == nil { workspaceOrder.append(workspace.id) }
+        workspaceCache[workspace.id] = workspace
+    }
+
+    private func showWindow(for workspace: Workspace) {
         let controller = TerminalWindowController(frameName: "SparkWorkspace-" + workspace.id.uuidString,
-            workspace: workspace, catalog: catalog, notifications: notifications, restoredFrame: snapshot?.windowFrame)
+            workspace: workspace, catalog: catalog, notifications: notifications, restoredFrame: workspace.lastWindowFrame)
         controller.onClose = { [weak self, weak controller] in
             guard let self, !self.terminating else { return }
+            if let id = controller?.workspace.id {
+                self.workspaceCache.removeValue(forKey: id)
+                self.workspaceOrder.removeAll { $0 == id }
+            }
             self.windows.removeAll { $0 === controller }
-            self.catalog.setOpenIDs(self.windows.map { $0.workspace.id })
+            self.catalog.setOpenIDs(self.workspaceOrder.filter { self.workspaceCache[$0] != nil })
             self.catalog.flush()
+            if self.windows.isEmpty && self.workspaceCache.isEmpty { NSApp.terminate(nil) }
         }
         windows.append(controller)
         catalog.save(workspace.snapshot())
-        catalog.setOpenIDs(windows.map { $0.workspace.id })
+        catalog.setOpenIDs(workspaceOrder.filter { workspaceCache[$0] != nil })
         controller.showWindow(nil)
     }
     @objc private func splitRight(_ sender: Any?) { workspace?.split(.vertical) }
@@ -199,7 +250,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
 
 @MainActor
 final class TerminalWindowController: NSWindowController, NSWindowDelegate {
-    let workspace: Workspace
+    private(set) var workspace: Workspace
     private let catalog: WorkspaceStore
     private let notifications: AgentNotifications
     var onClose: (() -> Void)?
@@ -223,10 +274,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         window.minSize = NSSize(width: 620, height: 400)
         window.isReleasedWhenClosed = false
         shouldCascadeWindows = false
-        let workspace = self.workspace
-        workspace.window = window
-        if workspace.sessions.isEmpty { workspace.add() }
-        window.contentView = NSHostingView(rootView: ContentView(workspace: workspace, catalog: self.catalog, notifications: self.notifications))
+        if self.workspace.sessions.isEmpty { self.workspace.add() }
+        window.contentView = NSHostingView(rootView: ContentView(workspace: self.workspace, catalog: self.catalog, notifications: self.notifications))
         // Restore after installing content, and never center over a saved frame.
         if let restoredFrame {
             let frame = NSRectFromString(restoredFrame)
@@ -242,31 +291,61 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
             } else { window.center() }
         } else if !window.setFrameUsingName(frameName), !window.setFrameUsingName("SparkTerminalWindow") { window.center() }
         window.setFrameAutosaveName(frameName)
-        workspace.lastWindowFrame = NSStringFromRect(window.frame)
+        self.workspace.lastWindowFrame = NSStringFromRect(window.frame)
         window.delegate = self
-        workspace.onChange = { [weak workspace, weak window, weak catalog = self.catalog] in
-            guard let workspace else { return }
-            window?.title = "Spark — " + workspace.name
-            catalog?.save(workspace.snapshot())
-        }
-        workspace.onAgentChange = { [weak notifications = self.notifications, weak workspace] session, activity in
-            guard let workspace else { return }
-            notifications?.observe(activity, session: session, workspaceID: workspace.id)
-        }
-        workspace.onSessionRemoved = { [weak notifications = self.notifications] id in notifications?.removeSession(id) }
+        installWorkspace(self.workspace)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func switchWorkspace(to next: Workspace) {
+        guard next.id != workspace.id, let window else { return }
+        saveFrame()
+        catalog.save(workspace.snapshot())
+        workspace.window = nil
+        workspace = next
+        workspace.window = window
+        window.title = "Spark — " + workspace.name
+        if workspace.sessions.isEmpty { workspace.add() }
+        window.contentView = NSHostingView(rootView: ContentView(workspace: workspace, catalog: catalog, notifications: notifications))
+        installWorkspace(workspace)
+        catalog.save(workspace.snapshot())
+        if let frame = workspace.lastWindowFrame {
+            let rect = NSRectFromString(frame)
+            if rect.width >= 620, rect.height >= 400, NSScreen.screens.contains(where: { $0.visibleFrame.intersects(rect) }) {
+                window.setFrame(rect, display: true, animate: false)
+            }
+        }
+    }
+
+    private func installWorkspace(_ workspace: Workspace) {
+        workspace.window = window
+        workspace.onChange = { [weak self, weak workspace] in
+            guard let self, let workspace else { return }
+            if self.workspace.id == workspace.id { self.window?.title = "Spark — " + workspace.name }
+            self.catalog.save(workspace.snapshot())
+        }
+        workspace.onAgentChange = { [weak self, weak workspace] session, activity in
+            guard let self, let workspace else { return }
+            self.notifications.observe(activity, session: session, workspaceID: workspace.id)
+        }
+        workspace.onSessionRemoved = { [weak self] id in self?.notifications.removeSession(id) }
+        workspace.onLastTerminalExit = {
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+        }
+    }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        !workspace.hasRunningSessions || Workspace.confirmClose()
+        !workspace.hasActiveCommands || Workspace.confirmClose()
     }
     func windowWillClose(_ notification: Notification) {
+        let closingWorkspace = workspace
         if !terminating {
             saveFrame()
-            catalog.save(workspace.snapshot())
+            catalog.save(closingWorkspace.snapshot())
             catalog.flush()
         }
-        workspace.onChange = nil
-        workspace.stopAll()
+        closingWorkspace.window = nil
+        closingWorkspace.stopAll()
         onClose?()
     }
 
