@@ -77,12 +77,10 @@ private struct WorkspaceActivitySection: View {
                             workspace.resume(conversation)
                         } label: {
                             HStack(spacing: 9) {
-                                Image(systemName: "arrow.counterclockwise").foregroundStyle(.secondary)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(conversation.title).lineLimit(1)
-                                    Text(conversation.provider.name)
-                                        .font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
-                                }
+                                Image(conversation.provider == .codex ? "OpenAI" : "Anthropic")
+                                    .resizable().scaledToFit().frame(width: 16, height: 16)
+                                    .accessibilityHidden(true)
+                                Text(conversation.title).lineLimit(1)
                                 Spacer(minLength: 0)
                             }.padding(.vertical, 6).contentShape(Rectangle())
                         }.buttonStyle(.plain).help("Resume in a new tab · \(conversation.directory)")

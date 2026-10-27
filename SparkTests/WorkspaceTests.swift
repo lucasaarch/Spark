@@ -5,6 +5,18 @@ import Testing
 extension NativePresentationTests {
     @MainActor
     struct WorkspaceTests {
+        @Test func liveActivityCatalogDeduplicatesByIdentityAndPreservesDistinctWorkspaces() {
+            let catalog = WorkspaceStore()
+            let first = Workspace(name: "Spark")
+            let duplicateInstance = Workspace(snapshot: first.snapshot())
+            let other = Workspace(name: "Spark")
+            defer { first.stopAll(); duplicateInstance.stopAll(); other.stopAll() }
+
+            catalog.setLiveWorkspaces([first, duplicateInstance, other])
+
+            #expect(catalog.liveWorkspaces.map(\.id) == [first.id, other.id])
+        }
+
         @Test func nestedSplitsCollapseWithoutReplacingSurvivingTerminals() throws {
             let workspace = Workspace()
             defer { workspace.stopAll() }

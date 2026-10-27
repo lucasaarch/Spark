@@ -189,7 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     private func refreshLiveWorkspaces() {
-        catalog.liveWorkspaces = workspaceOrder.compactMap { workspaceCache[$0] }
+        catalog.setLiveWorkspaces(workspaceOrder.compactMap { workspaceCache[$0] })
     }
 
     private func showWindow(for workspace: Workspace) {
