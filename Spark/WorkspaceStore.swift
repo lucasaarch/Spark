@@ -11,7 +11,7 @@ final class WorkspaceStore: ObservableObject {
     }
     @Published private(set) var workspaces: [WorkspaceSnapshot] = []
     @Published private(set) var errorMessage: String?
-    @Published var liveWorkspaces: [Workspace] = []
+    @Published private(set) var liveWorkspaces: [Workspace] = []
     var activateSession: ((UUID, UUID) -> Void)?
     private(set) var openIDs: [UUID] = []
     var openWorkspace: ((UUID?) -> Void)?
@@ -69,6 +69,11 @@ final class WorkspaceStore: ObservableObject {
     }
 
     func setOpenIDs(_ ids: [UUID]) { openIDs = ids; scheduleSave() }
+
+    func setLiveWorkspaces(_ workspaces: [Workspace]) {
+        var seen = Set<UUID>()
+        liveWorkspaces = workspaces.filter { seen.insert($0.id).inserted }
+    }
 
     func deleteWorkspace(_ id: UUID) {
         guard workspaces.contains(where: { $0.id == id }) else { return }
