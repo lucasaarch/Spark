@@ -196,9 +196,12 @@ final class Workspace: ObservableObject {
     func remove(_ session: TerminalSession, exitedNaturally: Bool = false) {
         guard let index = tabs.firstIndex(where: { $0.layout.sessionIDs.contains(session.id) }) else { return }
         let wasSelected = selectedID == session.id
+        let precedingPaneID = tabs[index].layout.sessionIDs.prefix(while: { $0 != session.id }).last
         if let layout = tabs[index].layout.removing(session.id) {
             tabs[index].layout = layout
-            if tabs[index].activePaneID == session.id { tabs[index].activePaneID = layout.sessionIDs[0] }
+            if tabs[index].activePaneID == session.id {
+                tabs[index].activePaneID = precedingPaneID ?? layout.sessionIDs[0]
+            }
         } else {
             tabs.remove(at: index)
         }
