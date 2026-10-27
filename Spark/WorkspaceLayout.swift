@@ -26,9 +26,10 @@ indirect enum PaneLayout: Codable, Equatable {
         case .pane(let id):
             return id == target ? .split(id: UUID(), axis: axis, ratio: 0.5, first: self, second: .pane(newID)) : self
         case .split(let id, let direction, let ratio, let first, let second):
-            return .split(id: id, axis: direction, ratio: ratio,
-                          first: first.splitting(target, with: newID, axis: axis),
-                          second: second.splitting(target, with: newID, axis: axis))
+            return .split(
+                id: id, axis: direction, ratio: ratio,
+                first: first.splitting(target, with: newID, axis: axis),
+                second: second.splitting(target, with: newID, axis: axis))
         }
     }
 
@@ -46,8 +47,9 @@ indirect enum PaneLayout: Codable, Equatable {
         switch self {
         case .pane: return self
         case .split(let id, let axis, let ratio, let first, let second):
-            return .split(id: id, axis: axis, ratio: id == target ? min(0.9, max(0.1, value)) : ratio,
-                          first: first.settingRatio(value, for: target), second: second.settingRatio(value, for: target))
+            return .split(
+                id: id, axis: axis, ratio: id == target ? min(0.9, max(0.1, value)) : ratio,
+                first: first.settingRatio(value, for: target), second: second.settingRatio(value, for: target))
         }
     }
 
@@ -102,12 +104,14 @@ enum PanePreset: CaseIterable, Identifiable {
         case .mainAndTwoRows:
             .split(.vertical, 2.0 / 3.0, .current, .split(.horizontal, 0.5, .extra(0), .extra(1)))
         case .gridFour:
-            .split(.vertical, 0.5,
-                   .split(.horizontal, 0.5, .current, .extra(0)),
-                   .split(.horizontal, 0.5, .extra(1), .extra(2)))
+            .split(
+                .vertical, 0.5,
+                .split(.horizontal, 0.5, .current, .extra(0)),
+                .split(.horizontal, 0.5, .extra(1), .extra(2)))
         case .mainAndThreeRows:
-            .split(.vertical, 2.0 / 3.0, .current,
-                   .split(.horizontal, 1.0 / 3.0, .extra(0), .split(.horizontal, 0.5, .extra(1), .extra(2))))
+            .split(
+                .vertical, 2.0 / 3.0, .current,
+                .split(.horizontal, 1.0 / 3.0, .extra(0), .split(.horizontal, 0.5, .extra(1), .extra(2))))
         }
     }
 
@@ -123,9 +127,10 @@ enum PanePreset: CaseIterable, Identifiable {
             case .current: .pane(current)
             case .extra(let index): .pane(extras[index])
             case .split(let axis, let ratio, let first, let second):
-                .split(id: UUID(), axis: axis, ratio: ratio,
-                       first: first.build(current: current, extras: extras),
-                       second: second.build(current: current, extras: extras))
+                .split(
+                    id: UUID(), axis: axis, ratio: ratio,
+                    first: first.build(current: current, extras: extras),
+                    second: second.build(current: current, extras: extras))
             }
         }
     }
@@ -142,6 +147,8 @@ struct WorkspaceSnapshot: Identifiable, Codable, Equatable {
         let id: UUID
         let directory: String
         let customTitle: String?
+        var conversation: AgentConversation?
+        var worktree: WorktreeRecord?
     }
     var id: UUID
     var name: String
@@ -150,11 +157,14 @@ struct WorkspaceSnapshot: Identifiable, Codable, Equatable {
     var selectedID: UUID?
     var focusMode: Bool
     var windowFrame: String?
+    var conversations: [AgentConversation]?
 
     var isValid: Bool {
         guard name.count <= 160, tabs.count <= 64, sessions.count <= 128,
-              tabs.allSatisfy({ $0.layout.isValid() && $0.layout.sessionIDs.count <= 8 }),
-              Set(tabs.map(\.id)).count == tabs.count else { return false }
+            (conversations?.count ?? 0) <= 100, conversations?.allSatisfy(\.isValid) ?? true,
+            tabs.allSatisfy({ $0.layout.isValid() && $0.layout.sessionIDs.count <= 8 }),
+            Set(tabs.map(\.id)).count == tabs.count
+        else { return false }
         let leaves = tabs.flatMap { $0.layout.sessionIDs }
         let ids = sessions.map(\.id)
         let splits = tabs.flatMap { $0.layout.splitIDs }
@@ -162,6 +172,9 @@ struct WorkspaceSnapshot: Identifiable, Codable, Equatable {
             && Set(leaves) == Set(ids)
             && tabs.allSatisfy { $0.layout.sessionIDs.contains($0.activePaneID) }
             && (selectedID == nil || ids.contains(selectedID!))
-            && sessions.allSatisfy { $0.directory.hasPrefix("/") && $0.directory.count <= 4096 && ($0.customTitle?.count ?? 0) <= 160 }
+            && sessions.allSatisfy {
+                $0.directory.hasPrefix("/") && $0.directory.count <= 4096 && ($0.customTitle?.count ?? 0) <= 160
+                    && ($0.conversation?.isValid ?? true) && ($0.worktree?.isValid ?? true)
+            }
     }
 }

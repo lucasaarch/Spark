@@ -1,5 +1,4 @@
 import AppKit
-import Combine
 import UserNotifications
 
 /// State transitions, not progress/message updates, produce notifications.
@@ -10,7 +9,9 @@ struct AgentNotificationPolicy {
     mutating func update(_ activity: AgentActivity?, isViewing: Bool) -> String? {
         guard let activity else { previous = nil; hasWorked = false; return nil }
         if previous?.provider != activity.provider { hasWorked = false }
-        let changed = previous?.provider != activity.provider || previous?.state != activity.state || previous?.kind != activity.kind
+        let changed =
+            previous?.provider != activity.provider || previous?.state != activity.state
+            || previous?.kind != activity.kind
         previous = activity
         var event: String?
         switch activity.state {
@@ -28,65 +29,26 @@ struct AgentNotificationPolicy {
 }
 
 @MainActor
-final class AgentNotifications: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
-    @Published private(set) var enabled: Bool
-    @Published private(set) var requestingAuthorization = false
-    @Published private(set) var status: String = "Alerts for completion, errors and requests for attention."
+final class AgentNotifications: NSObject, UNUserNotificationCenterDelegate {
     var activateSession: ((UUID, UUID) -> Void)?
     var isViewingSession: ((UUID, UUID) -> Bool)?
     private var policies: [UUID: AgentNotificationPolicy] = [:]
-    private var authorizationGeneration = 0
     private let center: UNUserNotificationCenter
-    private let defaults: UserDefaults
 
-    init(center: UNUserNotificationCenter = .current(), defaults: UserDefaults = .standard) {
+    init(center: UNUserNotificationCenter = .current()) {
         self.center = center
-        self.defaults = defaults
-        enabled = defaults.bool(forKey: "agentNotificationsEnabled")
         super.init()
         center.delegate = self
-        if enabled {
-            Task { [weak self, center] in
-                let settings = await center.notificationSettings()
-                guard let self, self.enabled, !self.requestingAuthorization else { return }
-                if settings.authorizationStatus != .authorized && settings.authorizationStatus != .provisional {
-                    self.enabled = false
-                    self.defaults.set(false, forKey: "agentNotificationsEnabled")
-                    self.status = "Allow Spark notifications in System Settings to receive agent alerts."
-                }
-            }
-        }
     }
 
-    func setEnabled(_ value: Bool) {
-        authorizationGeneration += 1
-        let generation = authorizationGeneration
-        guard value else {
-            enabled = false
-            requestingAuthorization = false
-            defaults.set(false, forKey: "agentNotificationsEnabled")
-            status = "Alerts for completion, errors and requests for attention."
-            center.removeAllPendingNotificationRequests()
-            center.removeAllDeliveredNotifications()
-            return
-        }
-        requestingAuthorization = true
-        status = "Waiting for notification permission from macOS…"
+    /// No app-level opt-out: macOS owns permission and delivery settings, including
+    /// re-enabling alerts while Spark is running. Legacy app preferences are ignored.
+    func requestAuthorizationIfNeeded() {
         Task {
-            do {
-                let granted = try await center.requestAuthorization(options: [.alert, .sound])
-                guard authorizationGeneration == generation else { return }
-                requestingAuthorization = false
-                enabled = granted
-                defaults.set(granted, forKey: "agentNotificationsEnabled")
-                status = granted ? "Notifications enabled. The session you are using stays quiet."
-                    : "Notifications are blocked. Allow Spark in System Settings → Notifications."
-            } catch {
-                guard authorizationGeneration == generation else { return }
-                requestingAuthorization = false
-                enabled = false
-                defaults.set(false, forKey: "agentNotificationsEnabled")
-                status = "Notifications unavailable: \(error.localizedDescription)"
+            let settings = await center.notificationSettings()
+            guard settings.authorizationStatus == .notDetermined else { return }
+            do { _ = try await center.requestAuthorization(options: [.alert, .sound]) } catch {
+                NSLog("Spark: notification authorization failed: %@", error.localizedDescription)
             }
         }
     }
@@ -95,7 +57,7 @@ final class AgentNotifications: NSObject, ObservableObject, UNUserNotificationCe
         var policy = policies[session.id] ?? AgentNotificationPolicy()
         let event = policy.update(activity, isViewing: isViewingSession?(workspaceID, session.id) ?? false)
         policies[session.id] = policy
-        guard enabled, let event, let activity else { return }
+        guard let event, let activity else { return }
         let content = UNMutableNotificationContent()
         content.title = "\(activity.provider.name) · \(event)"
         content.body = String(session.displayTitle.prefix(160))
@@ -115,20 +77,25 @@ final class AgentNotifications: NSObject, ObservableObject, UNUserNotificationCe
         center.removeDeliveredNotifications(withIdentifiers: [id.uuidString])
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
-                                            withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter, willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
         let info = notification.request.content.userInfo
         let workspace = (info["workspace"] as? String).flatMap(UUID.init(uuidString:))
         let session = (info["session"] as? String).flatMap(UUID.init(uuidString:))
         Task { @MainActor [weak self] in
-            guard let self, self.enabled, let workspace, let session,
-                  self.isViewingSession?(workspace, session) != true else { completionHandler([]); return }
+            guard let self, let workspace, let session,
+                self.isViewingSession?(workspace, session) != true
+            else { completionHandler([]); return }
             completionHandler([.banner, .sound])
         }
     }
 
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
-                                            withCompletionHandler completionHandler: @escaping () -> Void) {
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
         let info = response.notification.request.content.userInfo
         let workspace = (info["workspace"] as? String).flatMap(UUID.init(uuidString:))
         let session = (info["session"] as? String).flatMap(UUID.init(uuidString:))

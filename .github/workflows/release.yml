@@ -27,6 +27,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_26.6.app
+      - name: SwiftLint
+        run: scripts/lint.sh
       - name: Validate signing configuration
         run: scripts/release.sh --check
       - name: Test

@@ -5,6 +5,20 @@ import Testing
 
 @MainActor
 struct AgentActivityTests {
+    @Test func workingOrbMovesAndKeepsFramesWithinItsBounds() {
+        let first = WorkingOrbGeometry.frame(at: 0)
+        #expect(first != WorkingOrbGeometry.frame(at: 1))
+        #expect(first == WorkingOrbGeometry.frame(at: 0))
+        for time in [0.0, 0.6, 1, 10, 1_000_000] {
+            for dot in WorkingOrbGeometry.frame(at: time) {
+                #expect(dot.x.isFinite && dot.y.isFinite && dot.radius.isFinite)
+                #expect(dot.x - dot.radius >= 0 && dot.x + dot.radius <= 20)
+                #expect(dot.y - dot.radius >= 0 && dot.y + dot.radius <= 20)
+                #expect((0...1).contains(dot.opacity))
+            }
+        }
+    }
+
     private final class Delegate: TerminalDelegate {
         func send(source: Terminal, data: ArraySlice<UInt8>) {}
     }
@@ -56,7 +70,8 @@ struct AgentActivityTests {
         let claude = workspace.add()
         defer { workspace.stopAll() }
         for (session, app, state) in [(codex, "codex", "working"), (claude, "claude", "blocked")] {
-            session.terminal.startProcess(executable: "/bin/sh",
+            session.terminal.startProcess(
+                executable: "/bin/sh",
                 args: ["-c", "printf '\\033]7501;state=\(state):app=\(app)\\007'; exec /bin/cat"],
                 environment: TerminalSession.environment())
         }
@@ -72,7 +87,9 @@ struct AgentActivityTests {
         codex.terminal.feed(text: report("state=done:app=codex"))
         try await wait { codex.agent?.state == .done }
         kill(codex.terminal.process.shellPid, SIGTERM)
-        try await wait { if case .exited = codex.status { return true }; return false }
+        try await wait {
+            if case .exited = codex.status { return true }; return false
+        }
         #expect(codex.agent == nil)
         #expect(claude.agent?.state == .blocked)
         workspace.remove(claude)

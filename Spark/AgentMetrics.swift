@@ -15,6 +15,8 @@ struct AgentMetrics: Codable, Equatable, Sendable {
     }
 
     var model: String?
+    var conversationID: UUID?
+    var codexThreadReference: String?
     var sessionTitle: String?
     var contextPercent: Double?
     var contextWindow: Int?
@@ -36,15 +38,29 @@ struct AgentMetrics: Codable, Equatable, Sendable {
     /// slots are accepted: Codex may truncate its OSC title to 240 characters.
     static func codex(title: String) -> AgentMetrics? {
         guard title.hasPrefix("codex | "), title.count <= 2048 else { return nil }
-        let slots = String(title.dropFirst(5)).components(separatedBy: " | codex").dropLast().map {
+        var slots = String(title.dropFirst(5)).components(separatedBy: " | codex").dropLast().map {
             $0.hasPrefix(" | ") ? String($0.dropFirst(3)) : $0
         }
-        guard slots.count >= 3 else { return nil }
+        // New launchers put the immutable thread UUID first. Keep accepting
+        // the previous format for agents already running when Spark updates.
+        let threadReference = slots.first.flatMap { CodexConversationLocator.prefix(from: $0) }
+        let conversationID = threadReference.flatMap(UUID.init(uuidString:))
+        if threadReference != nil {
+            slots.removeFirst()
+            // Put allowance first in the emitted title so the global title
+            // length cap never sacrifices usage for a long conversation name.
+            let ordered = slots
+            slots = [6, 2, 3, 4, 5, 0, 1].map { ordered.indices.contains($0) ? ordered[$0] : "" }
+        } else if slots.count < 3 {
+            return nil
+        }
         func slot(_ index: Int) -> String? {
             guard slots.indices.contains(index) else { return nil }
             return clean(slots[index])
         }
         var result = AgentMetrics()
+        result.conversationID = conversationID
+        result.codexThreadReference = threadReference
         result.sessionTitle = slot(0)
         result.model = slot(1)
         if let context = slot(2), context.hasPrefix("Context "), context.hasSuffix("% used") {
@@ -56,10 +72,12 @@ struct AgentMetrics: Codable, Equatable, Sendable {
             if let detail = slot(index) {
                 // Native Codex limit items end in "<percent>% left". Keep the
                 // original display text while normalizing account allowance.
-                let remaining = detail.hasSuffix("% left")
+                let remaining =
+                    detail.hasSuffix("% left")
                     ? percentage(detail.dropLast(6).split(separator: " ").last.flatMap { Double($0) })
                     : nil
-                result.limits.append(Limit(name: name, usedPercent: remaining.map { 100 - $0 }, detail: detail, resetsAt: nil))
+                result.limits.append(
+                    Limit(name: name, usedPercent: remaining.map { 100 - $0 }, detail: detail, resetsAt: nil))
             }
         }
         return result
@@ -71,13 +89,16 @@ struct AgentMetrics: Codable, Equatable, Sendable {
         let payload = try decoder.decode(ClaudeStatus.self, from: data)
         var result = AgentMetrics()
         result.model = clean(payload.model?.displayName ?? payload.model?.id)
+        result.conversationID = payload.sessionId.flatMap(UUID.init(uuidString:))
         result.sessionTitle = clean(payload.sessionName)
         result.contextPercent = percentage(payload.contextWindow?.usedPercentage)
         result.contextWindow = payload.contextWindow?.contextWindowSize.flatMap { $0 > 0 ? $0 : nil }
         result.inputTokens = payload.contextWindow?.totalInputTokens.flatMap { $0 >= 0 ? String($0) : nil }
         result.outputTokens = payload.contextWindow?.totalOutputTokens.flatMap { $0 >= 0 ? String($0) : nil }
         result.costUSD = payload.cost?.totalCostUsd.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
-        for (name, window) in [("5-hour limit", payload.rateLimits?.fiveHour), ("Weekly limit", payload.rateLimits?.sevenDay)] {
+        for (name, window) in [
+            ("5-hour limit", payload.rateLimits?.fiveHour), ("Weekly limit", payload.rateLimits?.sevenDay)
+        ] {
             guard let window, let percent = percentage(window.usedPercentage) else { continue }
             let reset = window.resetsAt.flatMap { $0.isFinite && $0 > 0 ? Date(timeIntervalSince1970: $0) : nil }
             result.limits.append(Limit(name: name, usedPercent: percent, detail: nil, resetsAt: reset))
@@ -87,9 +108,12 @@ struct AgentMetrics: Codable, Equatable, Sendable {
 
     static func clean(_ text: String?) -> String? {
         guard let text else { return nil }
-        let visible = String(String.UnicodeScalarView(text.unicodeScalars.filter {
-            $0.properties.generalCategory != .format && !CharacterSet.controlCharacters.contains($0)
-        })).trimmingCharacters(in: .whitespacesAndNewlines)
+        let visible = String(
+            String.UnicodeScalarView(
+                text.unicodeScalars.filter {
+                    $0.properties.generalCategory != .format && !CharacterSet.controlCharacters.contains($0)
+                })
+        ).trimmingCharacters(in: .whitespacesAndNewlines)
         return visible.isEmpty ? nil : String(visible.prefix(160))
     }
 
@@ -110,6 +134,7 @@ struct AgentMetrics: Codable, Equatable, Sendable {
         struct Limits: Decodable { let fiveHour: Window?; let sevenDay: Window? }
         let model: Model?
         let sessionName: String?
+        let sessionId: String?
         let contextWindow: Context?
         let cost: Cost?
         let rateLimits: Limits?
@@ -128,14 +153,17 @@ enum ClaudeStatusBridge {
             }
             let metrics = try AgentMetrics.claude(data: input)
             if let folder = environment["SPARK_METRICS_DIRECTORY"],
-               let rawInvocation = environment["SPARK_CLAUDE_INVOCATION"], let invocation = UUID(uuidString: rawInvocation) {
+                let rawInvocation = environment["SPARK_CLAUDE_INVOCATION"],
+                let invocation = UUID(uuidString: rawInvocation) {
                 let directory = URL(fileURLWithPath: folder, isDirectory: true)
                 let attributes = try FileManager.default.attributesOfItem(atPath: directory.path)
                 guard directory.lastPathComponent.hasPrefix("Spark-"),
-                      (attributes[.ownerAccountID] as? NSNumber)?.uint32Value == getuid(),
-                      (attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700,
-                      attributes[.type] as? FileAttributeType == .typeDirectory else { return }
-                try JSONEncoder().encode(metrics).write(to: directory.appendingPathComponent(invocation.uuidString + ".json"), options: .atomic)
+                    (attributes[.ownerAccountID] as? NSNumber)?.uint32Value == getuid(),
+                    (attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700,
+                    attributes[.type] as? FileAttributeType == .typeDirectory
+                else { return }
+                try JSONEncoder().encode(metrics).write(
+                    to: directory.appendingPathComponent(invocation.uuidString + ".json"), options: .atomic)
             }
             // A useful CLI footer is retained while the same figures reach Spark.
             var line = metrics.model ?? "Claude Code"

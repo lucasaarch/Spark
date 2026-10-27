@@ -4,9 +4,9 @@ private let ember = Color(red: 1, green: 0.73, blue: 0.42)
 private let canvas = Color(red: 0.055, green: 0.063, blue: 0.078)
 
 struct ContentView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var workspace: Workspace
     @ObservedObject var catalog: WorkspaceStore
-    @ObservedObject var notifications: AgentNotifications
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,10 +17,13 @@ struct ContentView: View {
             if let message = catalog.errorMessage {
                 Text(message).font(.caption).foregroundStyle(.orange).padding(.horizontal, 16)
             }
-            WorkspaceTerminalHost(workspace: workspace)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .padding(.horizontal, workspace.focusMode ? 8 : 16)
-                .padding(.top, workspace.focusMode ? 8 : 0)
+            HStack(spacing: 12) {
+                WorkspaceTerminalHost(workspace: workspace)
+                if workspace.showsActivity { ActivityPanel(workspace: workspace, catalog: catalog) }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.horizontal, workspace.focusMode ? 8 : 16)
+            .padding(.top, workspace.focusMode ? 8 : 0)
             if let session = workspace.selected {
                 SessionFooter(session: session, workspace: workspace, catalog: catalog)
             }
@@ -28,14 +31,36 @@ struct ContentView: View {
         .background {
             ZStack {
                 VisualEffect()
-                LinearGradient(colors: [Color(red: 0.14, green: 0.15, blue: 0.18).opacity(0.85), canvas.opacity(0.95)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                LinearGradient(
+                    colors: [Color(red: 0.14, green: 0.15, blue: 0.18).opacity(0.85), canvas.opacity(0.95)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing)
             }
         }
         .preferredColorScheme(.dark)
-        .sheet(isPresented: $workspace.showsSettings, onDismiss: { workspace.applyPreferences() }) {
-            SettingsView(workspace: workspace, notifications: notifications)
+        .sheet(
+            isPresented: $workspace.showsSettings, onDismiss: { workspace.applyPreferences() },
+            content: {
+                SettingsView(workspace: workspace)
+            }
+        )
+        .sheet(item: $workspace.worktreeSession) { session in WorktreeView(session: session, workspace: workspace) }
+        .sheet(item: $workspace.reviewSession) { session in ChangesView(session: session) }
+        .alert(
+            "Unable to Open",
+            isPresented: Binding(get: { workspace.actionError != nil }, set: { if !$0 { workspace.actionError = nil } })
+        ) {
+            Button("OK") { workspace.actionError = nil }
+        } message: {
+            Text(workspace.actionError ?? "")
         }
+        .overlay {
+            if workspace.showsCommandPalette {
+                CommandPalette(workspace: workspace, catalog: catalog)
+                    .transition(reduceMotion ? .opacity : .opacity.combined(with: .scale(scale: 0.98)))
+                    .zIndex(1)
+            }
+        }
+        .animation(.easeOut(duration: reduceMotion ? 0.12 : 0.2), value: workspace.showsCommandPalette)
     }
 
     private var header: some View {
@@ -46,6 +71,7 @@ struct ContentView: View {
                 .shadow(color: ember.opacity(0.3), radius: 14)
             Text("Spark").font(.system(size: 18, weight: .semibold, design: .rounded))
             Spacer()
+            tool("sidebar.right", "Activity · ⇧⌘A") { workspace.showsActivity.toggle() }
             LayoutPresetMenu(workspace: workspace)
             tool("folder.badge.plus", "Open folder…", action: workspace.openDirectory)
             tool("arrow.up.left.and.arrow.down.right", "Focus mode · ⇧⌘F") { workspace.focusMode = true }
@@ -59,9 +85,10 @@ struct ContentView: View {
                 HStack(spacing: 6) {
                     ForEach(workspace.tabs) { tab in
                         if let session = workspace.sessions.first(where: { $0.id == tab.activePaneID }) {
-                            SessionTab(session: session, selected: workspace.selectedTab?.id == tab.id,
-                                       paneCount: tab.layout.sessionIDs.count,
-                                       select: { workspace.selectTab(tab) }, close: { workspace.closeTab(tab) })
+                            SessionTab(
+                                session: session, selected: workspace.selectedTab?.id == tab.id,
+                                paneCount: tab.layout.sessionIDs.count,
+                                select: { workspace.selectTab(tab) }, close: { workspace.closeTab(tab) })
                         }
                     }
                 }
@@ -99,13 +126,14 @@ private struct SessionTab: View {
                             Image(systemName: "terminal")
                         }
                     }
-                        .frame(width: 16, height: 16)
-                        .foregroundStyle(session.agent?.color ?? (selected ? ember : .secondary))
+                    .frame(width: 16, height: 16)
+                    .foregroundStyle(session.agent?.color ?? (selected ? ember : .secondary))
                     Text(session.displayTitle).lineLimit(1).truncationMode(.middle)
                         .frame(maxWidth: 180, alignment: .leading)
                     if paneCount > 1 { Text("\(paneCount)").font(.system(size: 9)).foregroundStyle(.secondary) }
                 }.padding(.vertical, 10).padding(.leading, 12)
-            }.buttonStyle(.plain).accessibilityLabel("Select \(session.displayTitle)\(session.agent.map { ", \($0.provider.name), \($0.label)" } ?? "")")
+            }.buttonStyle(.plain).accessibilityLabel(
+                "Select \(session.displayTitle)\(session.agent.map { ", \($0.provider.name), \($0.label)" } ?? "")")
             Button(action: close) {
                 Image(systemName: "xmark").font(.system(size: 9, weight: .semibold)).frame(width: 22, height: 24)
             }.buttonStyle(ChromeButtonStyle()).help("Close tab").accessibilityLabel("Close \(session.displayTitle)")
@@ -113,13 +141,20 @@ private struct SessionTab: View {
         }
         .font(.system(size: 12, weight: selected ? .medium : .regular))
         .frame(height: 36)
-        .background(session.agent?.color.opacity(selected ? 0.12 : 0.055)
-                    ?? .white.opacity(selected ? 0.07 : 0.025), in: RoundedRectangle(cornerRadius: 9))
-        .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(session.agent?.color.opacity(selected ? 0.5 : 0.22)
-                    ?? (selected ? ember.opacity(0.25) : .white.opacity(0.04))))
+        .background(
+            session.agent?.color.opacity(selected ? 0.12 : 0.055)
+                ?? .white.opacity(selected ? 0.07 : 0.025), in: RoundedRectangle(cornerRadius: 9)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 9).strokeBorder(
+                session.agent?.color.opacity(selected ? 0.5 : 0.22)
+                    ?? (selected ? ember.opacity(0.25) : .white.opacity(0.04)))
+        )
         .help(session.agent.map { "\($0.provider.name) · \($0.label)" } ?? session.displayTitle)
         .contextMenu {
-            Button("Rename Active Pane…") { newTitle = session.customTitle ?? ""; renaming = true }
+            Button("Rename Active Pane…") {
+                newTitle = session.customTitle ?? ""; renaming = true
+            }
             Button("Use Automatic Title") { session.customTitle = nil }
         }
         .alert("Rename Pane", isPresented: $renaming) {
@@ -140,16 +175,25 @@ struct SessionPane: View {
                 Image(systemName: "folder").foregroundStyle(ember.opacity(0.8))
                 Text(shortPath).lineLimit(1).truncationMode(.middle)
                 Spacer()
+                PaneGitControls(session: session, workspace: workspace)
                 if session.agent != nil {
                     AgentBadge(session: session)
                 }
                 if workspace.visibleSessionIDs.count > 1 {
-                    Button { workspace.close(session) } label: { Image(systemName: "xmark") }
-                        .buttonStyle(.plain).help("Close pane").accessibilityLabel("Close pane")
+                    Button {
+                        workspace.close(session)
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.plain).help("Close pane").accessibilityLabel("Close pane")
                 }
                 if workspace.focusMode {
-                    Button { workspace.focusMode = false } label: { Image(systemName: "arrow.down.right.and.arrow.up.left") }
-                        .buttonStyle(.plain).help("Leave focus mode · ⇧⌘F").accessibilityLabel("Leave focus mode")
+                    Button {
+                        workspace.focusMode = false
+                    } label: {
+                        Image(systemName: "arrow.down.right.and.arrow.up.left")
+                    }
+                    .buttonStyle(.plain).help("Leave focus mode · ⇧⌘F").accessibilityLabel("Leave focus mode")
                 }
             }
             .font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary)
@@ -169,9 +213,17 @@ struct SessionPane: View {
             }
         }
         .background(canvas, in: RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(
-            workspace.selectedID == session.id ? ember.opacity(0.3) : .white.opacity(0.07)))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12).strokeBorder(
+                workspace.selectedID == session.id ? ember.opacity(0.3) : .white.opacity(0.07))
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: session.directory) {
+            while !Task.isCancelled {
+                await session.refreshRepository()
+                do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            }
+        }
     }
 
     private var shortPath: String {
@@ -190,17 +242,18 @@ private struct SessionFooter: View {
         HStack(spacing: 10) {
             WorkspaceMenu(workspace: workspace, catalog: catalog)
             if workspace.visibleSessionIDs.count > 1,
-               let index = workspace.visibleSessionIDs.firstIndex(of: session.id) {
+                let index = workspace.visibleSessionIDs.firstIndex(of: session.id) {
                 Text("Pane \(index + 1) of \(workspace.visibleSessionIDs.count)")
                     .font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
             }
             Spacer()
             Text("Switch panes  ⌃Tab").padding(.trailing, 14)
             Text("New tab  ⌘T").padding(.trailing, 14)
+            Text("Commands  ⌘K").padding(.trailing, 14)
             Text("Find  ⌘F")
         }
         .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary)
-        .padding(.horizontal, 22).frame(height: 38)
+        .padding(.horizontal, 16).frame(height: 38)
     }
 }
 
@@ -231,9 +284,10 @@ private struct LayoutPresetMenu: View {
     }
 
     private func preset(_ value: PanePreset) -> some View {
-        Button { _ = workspace.apply(value) } label: {
-            Text(value.glyph).font(.system(size: 13, weight: .medium, design: .monospaced)).foregroundColor(ember)
-                + Text("  ") + Text(value.name)
+        Button {
+            _ = workspace.apply(value)
+        } label: {
+            Text(value.name)
         }
         .disabled(!workspace.canApply(value))
     }
@@ -261,17 +315,11 @@ private struct WorkspaceMenu: View {
     @ObservedObject var workspace: Workspace
     @ObservedObject var catalog: WorkspaceStore
     @State private var namePrompt: WorkspaceNamePrompt?
+    @State private var isPresented = false
+
     var body: some View {
-        Menu {
-            Button("New Workspace…") { namePrompt = WorkspaceNamePrompt(kind: .create, initialName: "") }
-            Button("Rename Workspace…") { namePrompt = WorkspaceNamePrompt(kind: .rename, initialName: workspace.name) }
-            Divider()
-            ForEach(catalog.workspaces) { saved in
-                Button { catalog.openWorkspace?(saved.id) } label: {
-                    if saved.id == workspace.id { Label(saved.name, systemImage: "checkmark") }
-                    else { Text(saved.name) }
-                }
-            }
+        Button {
+            isPresented.toggle()
         } label: {
             HStack(spacing: 7) {
                 Image(systemName: "square.stack.3d.up").foregroundStyle(ember.opacity(0.9))
@@ -283,15 +331,101 @@ private struct WorkspaceMenu: View {
             .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.white.opacity(0.07)))
             .contentShape(RoundedRectangle(cornerRadius: 7))
         }
-        .menuStyle(.borderlessButton).fixedSize().help("Saved workspaces · create, switch or rename")
+        .buttonStyle(.plain)
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("WORKSPACES")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .tracking(1.1).foregroundStyle(.secondary)
+                    Spacer()
+                    Button {
+                        isPresented = false
+                        namePrompt = WorkspaceNamePrompt(kind: .create, initialName: "", workspaceID: nil)
+                    } label: {
+                        Label("New", systemImage: "plus")
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("New workspace")
+                }
+
+                if catalog.workspaces.isEmpty {
+                    Text("Create a workspace to save your terminal setup.")
+                        .font(.system(size: 12)).foregroundStyle(.secondary).padding(.vertical, 8)
+                } else {
+                    ScrollView {
+                        VStack(spacing: 4) {
+                            ForEach(catalog.workspaces) { saved in workspaceRow(saved) }
+                        }
+                    }
+                    .frame(maxHeight: 360)
+                }
+            }
+            .padding(12).frame(width: 310).preferredColorScheme(.dark)
+        }
+        .help("Saved workspaces · create, switch, rename or delete")
         .sheet(item: $namePrompt) { prompt in
-            WorkspaceNameDialog(prompt: prompt) { name in
+            WorkspaceNameDialog(
+                prompt: prompt,
+                delete: prompt.workspaceID.map { id in
+                    { catalog.deleteWorkspaceRequest?(id) }
+                }
+            ) { name in
                 switch prompt.kind {
                 case .create: catalog.createWorkspace?(name)
-                case .rename: workspace.name = name
+                case .rename:
+                    if let id = prompt.workspaceID { catalog.renameWorkspaceRequest?(id, name) }
                 }
             }
         }
+        .fixedSize()
+    }
+
+    private func workspaceRow(_ saved: WorkspaceSnapshot) -> some View {
+        let isCurrent = saved.id == workspace.id
+        return HStack(spacing: 8) {
+            Button {
+                isPresented = false
+                catalog.openWorkspace?(saved.id)
+            } label: {
+                HStack(spacing: 9) {
+                    Image(systemName: isCurrent ? "checkmark.circle.fill" : "square.stack.3d.up")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(isCurrent ? ember : Color.secondary).frame(width: 18)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(saved.name).font(.system(size: 12, weight: isCurrent ? .semibold : .medium)).lineLimit(1)
+                        Text("\(saved.sessions.count) \(saved.sessions.count == 1 ? "terminal" : "terminals")")
+                            .font(.system(size: 10)).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 4)
+                    if isCurrent {
+                        Text("OPEN").font(.system(size: 8, weight: .bold)).tracking(0.7)
+                            .foregroundStyle(ember.opacity(0.9))
+                    }
+                }
+                .padding(.horizontal, 8).padding(.vertical, 7)
+                .contentShape(RoundedRectangle(cornerRadius: 7))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open workspace \(saved.name)")
+
+            Button {
+                isPresented = false
+                namePrompt = WorkspaceNamePrompt(kind: .rename, initialName: saved.name, workspaceID: saved.id)
+            } label: {
+                Image(systemName: "gearshape")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 25, height: 28)
+                    .background(.white.opacity(0.045), in: RoundedRectangle(cornerRadius: 6))
+            }
+            .buttonStyle(.plain)
+            .help("Workspace settings")
+            .accessibilityLabel("Settings for workspace \(saved.name)")
+
+        }
+        .background(isCurrent ? Color.white.opacity(0.075) : Color.clear, in: RoundedRectangle(cornerRadius: 7))
     }
 }
 
@@ -300,20 +434,24 @@ private struct WorkspaceNamePrompt: Identifiable {
     let id = UUID()
     let kind: Kind
     let initialName: String
-    var title: String { kind == .create ? "New Workspace" : "Rename Workspace" }
+    let workspaceID: UUID?
+    var title: String { kind == .create ? "New Workspace" : "Workspace Settings" }
     var action: String { kind == .create ? "Create" : "Save" }
 }
 
 private struct WorkspaceNameDialog: View {
     let prompt: WorkspaceNamePrompt
     let save: (String) -> Void
+    let delete: (() -> Void)?
+    @State private var confirmsDelete = false
     @Environment(\.dismiss) private var dismiss
     @FocusState private var focused: Bool
     @State private var name: String
 
-    init(prompt: WorkspaceNamePrompt, save: @escaping (String) -> Void) {
+    init(prompt: WorkspaceNamePrompt, delete: (() -> Void)? = nil, save: @escaping (String) -> Void) {
         self.prompt = prompt
         self.save = save
+        self.delete = delete
         _name = State(initialValue: prompt.initialName)
     }
 
@@ -329,15 +467,29 @@ private struct WorkspaceNameDialog: View {
                 .focused($focused)
                 .onSubmit(commit)
             HStack(spacing: 10) {
+                if delete != nil {
+                    Button("Delete Workspace", role: .destructive) { confirmsDelete = true }
+                        .tint(.red)
+                }
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(prompt.action, action: commit).keyboardShortcut(.defaultAction).disabled(AgentMetrics.clean(name) == nil)
+                Button(prompt.action, action: commit).keyboardShortcut(.defaultAction).disabled(
+                    AgentMetrics.clean(name) == nil)
             }
         }
         .padding(24)
         .frame(width: 400)
         .preferredColorScheme(.dark)
         .onAppear { focused = true }
+        .alert("Delete Workspace?", isPresented: $confirmsDelete) {
+            Button("Cancel", role: .cancel) {}
+            Button("Delete", role: .destructive) {
+                dismiss()
+                delete?()
+            }
+        } message: {
+            Text("Delete “\(prompt.initialName)” and close its terminal sessions? This cannot be undone.")
+        }
     }
 
     private func commit() {
@@ -368,7 +520,6 @@ private struct ChromeButtonStyle: ButtonStyle {
 
 private struct SettingsView: View {
     @ObservedObject var workspace: Workspace
-    @ObservedObject var notifications: AgentNotifications
     @AppStorage("fontSize") private var fontSize = 14.0
     @AppStorage("optionAsMeta") private var optionAsMeta = false
     @Environment(\.dismiss) private var dismiss
@@ -380,7 +531,9 @@ private struct SettingsView: View {
                 Text("Make yourself at home.").font(.title3.weight(.semibold))
             }
             VStack(alignment: .leading, spacing: 12) {
-                HStack { Text("Terminal text"); Spacer(); Text("\(Int(fontSize)) pt").foregroundStyle(.secondary) }
+                HStack {
+                    Text("Terminal text"); Spacer(); Text("\(Int(fontSize)) pt").foregroundStyle(.secondary)
+                }
                 Slider(value: $fontSize, in: 11...28, step: 1).tint(ember)
                 Text("The quick brown fox jumps over the lazy dog.")
                     .font(.system(size: fontSize, design: .monospaced)).lineLimit(1)
@@ -391,9 +544,6 @@ private struct SettingsView: View {
             Text("Leave this off to type accented characters with your keyboard’s Option combinations.")
                 .font(.caption).foregroundStyle(.secondary)
             Divider()
-            Toggle("Agent notifications", isOn: Binding(get: { notifications.enabled }, set: { notifications.setEnabled($0) }))
-                .disabled(notifications.requestingAuthorization)
-            Text(notifications.status).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Text("Workspaces save automatically. Restoring opens fresh shells in the saved folders.")
                 .font(.caption).foregroundStyle(.secondary)
             Divider()

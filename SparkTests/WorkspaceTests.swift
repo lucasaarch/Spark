@@ -148,7 +148,9 @@ struct WorkspaceTests {
         try await wait { first.terminal.bounds.width > window.frame.width * 0.8 }
         #expect(first.terminal.process.shellPid == pid)
         first.terminal.send(data: Array("printf 'SURVIVING_PTY_OK\\n'\n".utf8)[...])
-        try await wait { String(decoding: first.terminal.getBufferAsData(), as: UTF8.self).contains("SURVIVING_PTY_OK") }
+        try await wait {
+            String(decoding: first.terminal.getBufferAsData(), as: UTF8.self).contains("SURVIVING_PTY_OK")
+        }
     }
 
     @Test func restoredSplitWindowHasVisibleGeometryAndStartsEveryVisiblePane() async throws {
@@ -160,7 +162,8 @@ struct WorkspaceTests {
         original.stopAll()
         saved.windowFrame = "{{175, 113}, {1120, 772}}"
         let workspace = Workspace(snapshot: saved)
-        let controller = TerminalWindowController(frameName: UUID().uuidString, workspace: workspace, restoredFrame: saved.windowFrame)
+        let controller = TerminalWindowController(
+            frameName: UUID().uuidString, workspace: workspace, restoredFrame: saved.windowFrame)
         let window = try #require(controller.window)
         defer { workspace.stopAll(); controller.close(); window.setFrameAutosaveName("") }
         controller.showWindow(nil)

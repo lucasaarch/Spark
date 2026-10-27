@@ -1,0 +1,36 @@
+included:
+  - Spark
+  - SparkTests
+  - SparkUITests
+  - scripts
+excluded:
+  - .build
+  - build
+  - DerivedData
+
+# Keep replacement decoding for PTY output: byte chunks can contain partial UTF-8.
+disabled_rules:
+  - optional_data_string_conversion
+
+line_length:
+  warning: 140
+  error: 180
+  ignores_comments: true
+  ignores_urls: true
+  ignores_interpolated_strings: true
+  ignores_multiline_strings: true
+identifier_name:
+  excluded: [id, x, y, dx, dy, r, g, b, a, i, j, fd, ok]
+nesting:
+  type_level: 2
+large_tuple: 3
+# Native controllers and declarative views group their lifecycle in one owner.
+type_body_length:
+  warning: 500
+  error: 650
+file_length:
+  warning: 800
+  error: 1000
+function_body_length:
+  warning: 80
+  error: 120

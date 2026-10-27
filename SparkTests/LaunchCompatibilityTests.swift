@@ -8,10 +8,10 @@ struct LaunchCompatibilityTests {
     func aliasesAndDescendantProcessesReceiveMetrics(command: String) async throws {
         let fixture = try AgentMetricsTests.Fixture()
         defer { fixture.remove() }
-        let rc = fixture.folder.appendingPathComponent(".zshrc")
-        var startup = try String(contentsOf: rc, encoding: .utf8)
+        let startupFile = fixture.folder.appendingPathComponent(".zshrc")
+        var startup = try String(contentsOf: startupFile, encoding: .utf8)
         startup += "\nalias cdx='caveman codex'\n"
-        try startup.write(to: rc, atomically: true, encoding: .utf8)
+        try startup.write(to: startupFile, atomically: true, encoding: .utf8)
         // Caveman resolves a binary on PATH and spawns it with inherited stdio.
         // An external process cannot see a zsh function; this exercises that seam.
         let wrapper = fixture.folder.appendingPathComponent("caveman")
@@ -19,7 +19,11 @@ struct LaunchCompatibilityTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapper.path)
         let codex = fixture.folder.appendingPathComponent("codex")
         var cli = try String(contentsOf: codex, encoding: .utf8)
-        cli = cli.replacingOccurrences(of: "test \"$1\" = -c || exit 9", with: "test \"$1\" = -c || exit 9\ntest \"$3\" = --model || exit 8\ntest \"$4\" = 'model with spaces' || exit 8")
+        cli = cli.replacingOccurrences(
+            of: "test \"$1\" = -c || exit 9",
+            with:
+                "test \"$1\" = -c || exit 9\ntest \"$3\" = --model || exit 8\ntest \"$4\" = 'model with spaces' || exit 8"
+        )
         cli += "\nexit 7\n"
         try cli.write(to: codex, atomically: false, encoding: .utf8)
 
@@ -90,7 +94,9 @@ struct LaunchCompatibilityTests {
     }
 
     @Test func backingScaleChangeDoesNotReapplyAnOlderGridAfterLayout() async throws {
-        let window = ScaleWindow(contentRect: NSRect(x: 0, y: 0, width: 1120, height: 740), styleMask: [.titled], backing: .buffered, defer: false)
+        let window = ScaleWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 1120, height: 740), styleMask: [.titled], backing: .buffered,
+            defer: false)
         window.isReleasedWhenClosed = false
         let session = TerminalSession(shell: "/bin/sh")
         defer { session.stop(); window.close() }

@@ -7,8 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		AC0000000000000000000001 /* LICENSE in Resources */ = {isa = PBXBuildFile; fileRef = AC0000000000000000000002 /* LICENSE */; };
 		AA0000000000000000000001 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000003 /* SwiftTerm */; };
 		AA0000000000000000000002 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000004 /* Sparkle */; };
+		AB0000000000000000000001 /* Highlighter in Frameworks */ = {isa = PBXBuildFile; productRef = AB0000000000000000000002 /* Highlighter */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -29,9 +31,13 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		AC0000000000000000000002 /* LICENSE */ = {isa = PBXFileReference; lastKnownFileType = text; path = LICENSE; sourceTree = "<group>"; };
 		A04DBDFB308FFA4900951B18 /* Spark.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Spark.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A04DBE08308FFA4A00951B18 /* SparkTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SparkTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A04DBE12308FFA4A00951B18 /* SparkUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SparkUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A04DBE7D3090376400951B18 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		A04DBE7F309037C100951B18 /* ci.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = ci.yml; sourceTree = "<group>"; };
+		A04DBE80309037C100951B18 /* release.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = release.yml; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -58,6 +64,7 @@
 			files = (
 				AA0000000000000000000001 /* SwiftTerm in Frameworks */,
 				AA0000000000000000000002 /* Sparkle in Frameworks */,
+				AB0000000000000000000001 /* Highlighter in Frameworks */,
 			);
 		};
 		A04DBE05308FFA4A00951B18 /* Frameworks */ = {
@@ -76,6 +83,9 @@
 		A04DBDF2308FFA4900951B18 = {
 			isa = PBXGroup;
 			children = (
+				A04DBE82309037C100951B18 /* .github */,
+				A04DBE7D3090376400951B18 /* README.md */,
+				AC0000000000000000000002 /* LICENSE */,
 				A04DBDFD308FFA4900951B18 /* Spark */,
 				A04DBE0B308FFA4A00951B18 /* SparkTests */,
 				A04DBE15308FFA4A00951B18 /* SparkUITests */,
@@ -91,6 +101,23 @@
 				A04DBE12308FFA4A00951B18 /* SparkUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		A04DBE81309037C100951B18 /* workflows */ = {
+			isa = PBXGroup;
+			children = (
+				A04DBE7F309037C100951B18 /* ci.yml */,
+				A04DBE80309037C100951B18 /* release.yml */,
+			);
+			path = workflows;
+			sourceTree = "<group>";
+		};
+		A04DBE82309037C100951B18 /* .github */ = {
+			isa = PBXGroup;
+			children = (
+				A04DBE81309037C100951B18 /* workflows */,
+			);
+			path = .github;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -113,6 +140,7 @@
 			packageProductDependencies = (
 				AA0000000000000000000003 /* SwiftTerm */,
 				AA0000000000000000000004 /* Sparkle */,
+				AB0000000000000000000002 /* Highlighter */,
 			);
 			productName = Spark;
 			productReference = A04DBDFB308FFA4900951B18 /* Spark.app */;
@@ -195,6 +223,7 @@
 			packageReferences = (
 				AA0000000000000000000005 /* XCRemoteSwiftPackageReference "SwiftTerm" */,
 				AA0000000000000000000006 /* XCRemoteSwiftPackageReference "Sparkle" */,
+				AB0000000000000000000003 /* XCRemoteSwiftPackageReference "HighlighterSwift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A04DBDFC308FFA4900951B18 /* Products */;
@@ -212,6 +241,7 @@
 		A04DBDF9308FFA4900951B18 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
+				AC0000000000000000000001 /* LICENSE in Resources */,
 			);
 		};
 		A04DBE06308FFA4A00951B18 /* Resources */ = {
@@ -292,6 +322,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				DEVELOPMENT_TEAM = DTL6JV77RD;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
@@ -315,6 +346,7 @@
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -354,6 +386,7 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
+				DEAD_CODE_STRIPPING = YES;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = DTL6JV77RD;
 				ENABLE_NS_ASSERTIONS = NO;
@@ -370,6 +403,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;
@@ -378,16 +412,17 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				INFOPLIST_FILE = "Config/Spark-Info.plist";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 0.1.0;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = DTL6JV77RD;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/Spark-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
@@ -407,16 +442,17 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				INFOPLIST_FILE = "Config/Spark-Info.plist";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 0.1.0;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = DTL6JV77RD;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "Config/Spark-Info.plist";
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
@@ -438,6 +474,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 0.1.0;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = DTL6JV77RD;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
@@ -459,6 +496,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 0.1.0;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = DTL6JV77RD;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
@@ -479,6 +517,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 0.1.0;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = DTL6JV77RD;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
@@ -499,6 +538,7 @@
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 0.1.0;
+				DEAD_CODE_STRIPPING = YES;
 				DEVELOPMENT_TEAM = DTL6JV77RD;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
@@ -568,6 +608,14 @@
 				version = 2.10.1;
 			};
 		};
+		AB0000000000000000000003 /* XCRemoteSwiftPackageReference "HighlighterSwift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/smittytone/HighlighterSwift";
+			requirement = {
+				kind = exactVersion;
+				version = 3.1.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -580,6 +628,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = AA0000000000000000000006 /* XCRemoteSwiftPackageReference "Sparkle" */;
 			productName = Sparkle;
+		};
+		AB0000000000000000000002 /* Highlighter */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AB0000000000000000000003 /* XCRemoteSwiftPackageReference "HighlighterSwift" */;
+			productName = Highlighter;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

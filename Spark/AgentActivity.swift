@@ -4,7 +4,7 @@ import SwiftTerm
 /// Presentation of the CLI's own OSC 7501 reports, scoped to one PTY.
 /// Titles and shell output are not reliable evidence that an agent is running.
 struct AgentActivity: Equatable {
-    enum Provider: Equatable {
+    enum Provider: String, Codable, CaseIterable, Sendable {
         case codex, claude
 
         init?(app: String?) {
@@ -29,7 +29,8 @@ struct AgentActivity: Equatable {
         // Both clients report a root record. A child alone must not turn the
         // containing shell (or an unrelated foreground app) into an agent UI.
         guard let root = records.first(where: { $0.id.isEmpty }),
-              let provider = Provider(app: root.app) else { return nil }
+            let provider = Provider(app: root.app)
+        else { return nil }
         self.provider = provider
         let relevant = records.filter { Provider(app: $0.effectiveApp) == provider }
         // Surface requests for attention even when a parent is still working.

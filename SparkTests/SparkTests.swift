@@ -30,7 +30,9 @@ struct SparkTests {
     }
 
     @Test func shellEnvironmentPreservesUserToolsAndOverridesTerminalIdentity() {
-        let result = TerminalSession.environment(inherited: ["PATH": "/opt/homebrew/bin:/usr/bin", "TERM": "dumb", "LANG": "pt_BR.UTF-8"])
+        let result = TerminalSession.environment(inherited: [
+            "PATH": "/opt/homebrew/bin:/usr/bin", "TERM": "dumb", "LANG": "pt_BR.UTF-8"
+        ])
         #expect(result.contains("PATH=/opt/homebrew/bin:/usr/bin"))
         #expect(result.contains("LANG=pt_BR.UTF-8"))
         #expect(result.contains("TERM=xterm-256color"))
@@ -42,8 +44,10 @@ struct SparkTests {
         let session = TerminalSession(directory: URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true))
         defer { session.stop() }
         // Keep this proof independent of the user's shell startup files.
-        session.terminal.startProcess(executable: "/bin/sh", args: ["-c", "printf '\\033]2;PTY proof\\007'; printf 'SPARK_PTY_OK'; sleep 0.2; exit 7"],
-                                      environment: TerminalSession.environment(), currentDirectory: session.directory.path)
+        session.terminal.startProcess(
+            executable: "/bin/sh",
+            args: ["-c", "printf '\\033]2;PTY proof\\007'; printf 'SPARK_PTY_OK'; sleep 0.2; exit 7"],
+            environment: TerminalSession.environment(), currentDirectory: session.directory.path)
         for _ in 0..<100 {
             if case .exited = session.status { break }
             try await Task.sleep(for: .milliseconds(50))

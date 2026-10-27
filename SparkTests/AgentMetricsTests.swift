@@ -5,7 +5,8 @@ import Testing
 @MainActor
 struct AgentMetricsTests {
     private func codexTitle(_ name: String = "") -> String {
-        "codex" + (name.isEmpty ? "" : " | \(name)") + " | codex | GPT-6 | codex | Context 37% used | codex | 12.4k in | codex | 620 out | codex | codex | weekly 86% left | codex"
+        "codex" + (name.isEmpty ? "" : " | \(name)")
+            + " | codex | GPT-6 | codex | Context 37% used | codex | 12.4k in | codex | 620 out | codex | codex | weekly 86% left | codex"
     }
 
     @Test func codexSlotsPreserveMissingValuesAndDiscardTruncatedFields() throws {
@@ -26,7 +27,10 @@ struct AgentMetricsTests {
     }
 
     @Test func claudeReportsContextCostAndLimitsWithoutRetainingConversationData() throws {
-        let payload = #"{"model":{"display_name":"Opus"},"session_name":"Fix login","context_window":{"used_percentage":42.5,"context_window_size":200000,"total_input_tokens":84000,"total_output_tokens":1000},"cost":{"total_cost_usd":1.2345},"rate_limits":{"five_hour":{"used_percentage":25,"resets_at":2000000000}},"transcript_path":"/private/conversation.jsonl","prompt":"PRIVATE_CONTENT"}"#
+        let payload =
+            #"""
+            {"model":{"display_name":"Opus"},"session_name":"Fix login","context_window":{"used_percentage":42.5,"context_window_size":200000,"total_input_tokens":84000,"total_output_tokens":1000},"cost":{"total_cost_usd":1.2345},"rate_limits":{"five_hour":{"used_percentage":25,"resets_at":2000000000}},"transcript_path":"/private/conversation.jsonl","prompt":"PRIVATE_CONTENT"}
+            """#
         let value = try AgentMetrics.claude(data: Data(payload.utf8))
         #expect(value.model == "Opus")
         #expect(value.contextPercent == 42.5)
@@ -39,7 +43,10 @@ struct AgentMetricsTests {
         let missing = try AgentMetrics.claude(data: Data("{}".utf8))
         #expect(missing.contextPercent == nil)
         #expect(missing.inputTokens == nil)
-        let invalid = try AgentMetrics.claude(data: Data(#"{"context_window":{"used_percentage":101,"total_input_tokens":-1},"cost":{"total_cost_usd":-3}}"#.utf8))
+        let invalid = try AgentMetrics.claude(
+            data: Data(
+                #"{"context_window":{"used_percentage":101,"total_input_tokens":-1},"cost":{"total_cost_usd":-3}}"#.utf8
+            ))
         #expect(invalid.contextPercent == nil)
         #expect(invalid.inputTokens == nil)
         #expect(invalid.costUSD == nil)
@@ -51,7 +58,8 @@ struct AgentMetricsTests {
         session.terminal.startProcess(executable: "/bin/cat")
         // All events deliberately arrive in one chunk: coalesced title
         // callbacks must not lose the integration marker or empty-name state.
-        session.terminal.feed(text: "\u{1b}]9001;SparkAgent:codex\u{7}\u{1b}]7501;state=idle:app=codex\u{7}\u{1b}]0;\(codexTitle())\u{7}")
+        session.terminal.feed(
+            text: "\u{1b}]9001;SparkAgent:codex\u{7}\u{1b}]7501;state=idle:app=codex\u{7}\u{1b}]0;\(codexTitle())\u{7}")
         try await wait { session.metrics?.contextPercent == 37 }
         #expect(session.title == "Codex")
         session.terminal.feed(text: "\u{1b}]0;\(codexTitle("Fix login"))\u{7}")
@@ -93,7 +101,11 @@ struct AgentMetricsTests {
         defer { session.stop() }
         session.start(environment: fixture.environment(percent: 10))
         try await wait { output(session).contains("STARTUP_READY") }
-        session.terminal.send(data: Array("printf 'ORDER:%s\\n' \"$SPARK_STARTUP_ORDER\"; [[ $ZDOTDIR == $SPARK_TEST_BIN ]] && printf 'ZDOTDIR_RESTORED\\n'; codex </dev/null\n".utf8)[...])
+        session.terminal.send(
+            data: Array(
+                ("printf 'ORDER:%s\\n' \"$SPARK_STARTUP_ORDER\"; "
+                    + "[[ $ZDOTDIR == $SPARK_TEST_BIN ]] && printf 'ZDOTDIR_RESTORED\\n'; codex </dev/null\n")
+                    .utf8)[...])
         try await wait { output(session).contains("AUTOMATION_UNCHANGED") }
         #expect(output(session).contains("ORDER:env,profile,rc,login,"))
         #expect(output(session).contains("ZDOTDIR_RESTORED"))
@@ -107,20 +119,20 @@ struct AgentMetricsTests {
     func returningToPromptRestoresInputModesAfterCLIExit(command: String) async throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
-        let rc = fixture.folder.appendingPathComponent(".zshrc")
-        var startup = try String(contentsOf: rc, encoding: .utf8)
+        let startupFile = fixture.folder.appendingPathComponent(".zshrc")
+        var startup = try String(contentsOf: startupFile, encoding: .utf8)
         startup += "\nalias cdx='caveman codex'\nfunction userClaude { \"$SPARK_TEST_BIN/claude\" \"$@\"; }\n"
-        try startup.write(to: rc, atomically: true, encoding: .utf8)
+        try startup.write(to: startupFile, atomically: true, encoding: .utf8)
         let wrapper = fixture.folder.appendingPathComponent("caveman")
         try "#!/bin/sh\nexec \"$@\"\n".write(to: wrapper, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: wrapper.path)
         // Simulate a CLI that leaves mouse tracking and nested Kitty modes enabled.
         let cli = #"""
-        #!/bin/sh
-        printf '\033[>1u\033[>3u\033[?1003;1006hCLI_INPUT_READY\n'
-        IFS= read -r line
-        exit 7
-        """#
+            #!/bin/sh
+            printf '\033[>1u\033[>3u\033[?1003;1006hCLI_INPUT_READY\n'
+            IFS= read -r line
+            exit 7
+            """#
         for name in ["codex", "claude"] {
             try cli.write(to: fixture.folder.appendingPathComponent(name), atomically: false, encoding: .utf8)
         }
@@ -137,9 +149,11 @@ struct AgentMetricsTests {
         #expect(session.terminal.currentMouseMode == .off)
         // Moving the pointer after exit must not inject an escape sequence
         // into the next shell command, and the CLI's exit status must survive.
-        let motion = try #require(NSEvent.mouseEvent(with: .mouseMoved,
-            location: NSPoint(x: 30, y: 30), modifierFlags: [], timestamp: 0,
-            windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+        let motion = try #require(
+            NSEvent.mouseEvent(
+                with: .mouseMoved,
+                location: NSPoint(x: 30, y: 30), modifierFlags: [], timestamp: 0,
+                windowNumber: 0, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
         session.terminal.mouseMoved(with: motion)
         session.terminal.send(data: Array("printf 'CLI_STATUS:%s\\n' \"$?\"\n".utf8)[...])
         try await wait { output(session).contains("CLI_STATUS:7") }
@@ -166,26 +180,31 @@ struct AgentMetricsTests {
         init() throws {
             folder = FileManager.default.temporaryDirectory.appendingPathComponent("Spark-test-" + UUID().uuidString)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
-            for (name, marker) in [(".zshenv", "env"), (".zprofile", "profile"), (".zshrc", "rc"), (".zlogin", "login")] {
+            for (name, marker) in [
+                (".zshenv", "env"), (".zprofile", "profile"), (".zshrc", "rc"), (".zlogin", "login")
+            ] {
                 var script = "export SPARK_STARTUP_ORDER=\"${SPARK_STARTUP_ORDER}\(marker),\"\n"
-                if name == ".zshrc" { script += "export PATH=\"$SPARK_TEST_BIN:/usr/bin:/bin:/usr/sbin:/sbin\"\nPROMPT=''\nunsetopt zle\nstty -echo\n" }
+                if name == ".zshrc" {
+                    script +=
+                        "export PATH=\"$SPARK_TEST_BIN:/usr/bin:/bin:/usr/sbin:/sbin\"\nPROMPT=''\nunsetopt zle\nstty -echo\n"
+                }
                 if name == ".zlogin" { script += "printf 'STARTUP_READY\\n'\n" }
                 try script.write(to: folder.appendingPathComponent(name), atomically: true, encoding: .utf8)
             }
             let claude = #"""
-            #!/bin/sh
-            test "$1" = --settings || exit 9
-            printf '\033]7501;state=idle:app=claude\007'
-            printf '{"model":{"display_name":"Fixture Opus"},"context_window":{"used_percentage":%s,"context_window_size":200000,"total_input_tokens":46000,"total_output_tokens":500},"cost":{"total_cost_usd":0.125},"rate_limits":{"five_hour":{"used_percentage":30}}}' "$SPARK_TEST_PERCENT" | "$SPARK_EXECUTABLE" --claude-status
-            IFS= read -r line
-            """#
+                #!/bin/sh
+                test "$1" = --settings || exit 9
+                printf '\033]7501;state=idle:app=claude\007'
+                printf '{"model":{"display_name":"Fixture Opus"},"context_window":{"used_percentage":%s,"context_window_size":200000,"total_input_tokens":46000,"total_output_tokens":500},"cost":{"total_cost_usd":0.125},"rate_limits":{"five_hour":{"used_percentage":30}}}' "$SPARK_TEST_PERCENT" | "$SPARK_EXECUTABLE" --claude-status
+                IFS= read -r line
+                """#
             let codex = #"""
-            #!/bin/sh
-            if [ ! -t 0 ]; then printf 'AUTOMATION_UNCHANGED\n'; exit; fi
-            test "$1" = -c || exit 9
-            printf '\033]7501;state=idle:app=codex\007\033]0;codex | codex | Fixture GPT | codex | Context 37%% used | codex | 100 in | codex | 10 out | codex | codex | codex\007'
-            IFS= read -r line
-            """#
+                #!/bin/sh
+                if [ ! -t 0 ]; then printf 'AUTOMATION_UNCHANGED\n'; exit; fi
+                test "$1" = -c || exit 9
+                printf '\033]7501;state=idle:app=codex\007\033]0;codex | codex | Fixture GPT | codex | Context 37%% used | codex | 100 in | codex | 10 out | codex | codex | codex\007'
+                IFS= read -r line
+                """#
             for (name, content) in [("claude", claude), ("codex", codex)] {
                 let file = folder.appendingPathComponent(name)
                 try content.write(to: file, atomically: true, encoding: .utf8)
@@ -194,8 +213,10 @@ struct AgentMetricsTests {
         }
 
         func environment(percent: Int) -> [String: String] {
-            ["HOME": folder.path, "ZDOTDIR": folder.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
-             "SPARK_TEST_BIN": folder.path, "SPARK_TEST_PERCENT": String(percent)]
+            [
+                "HOME": folder.path, "ZDOTDIR": folder.path, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
+                "SPARK_TEST_BIN": folder.path, "SPARK_TEST_PERCENT": String(percent)
+            ]
         }
 
         func remove() { try? FileManager.default.removeItem(at: folder) }

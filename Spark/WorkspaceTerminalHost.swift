@@ -20,7 +20,9 @@ struct WorkspaceTerminalHost: NSViewRepresentable {
 
         func update(_ container: NSView) {
             let live = Set(workspace.sessions.map(\.id))
-            for id in Array(panes.keys) where !live.contains(id) { panes.removeValue(forKey: id)?.removeFromSuperview() }
+            for id in Array(panes.keys) where !live.contains(id) {
+                panes.removeValue(forKey: id)?.removeFromSuperview()
+            }
             var usedSplits = Set<UUID>()
             var roots: [NSView] = []
             for tab in workspace.tabs {
@@ -34,14 +36,19 @@ struct WorkspaceTerminalHost: NSViewRepresentable {
                 root.isHidden = tab.id != workspace.selectedTab?.id
                 roots.append(root)
             }
-            for child in container.subviews where !roots.contains(where: { $0 === child }) { child.removeFromSuperview() }
-            for id in Array(splits.keys) where !usedSplits.contains(id) { splits.removeValue(forKey: id)?.removeFromSuperview() }
+            for child in container.subviews where !roots.contains(where: { $0 === child }) {
+                child.removeFromSuperview()
+            }
+            for id in Array(splits.keys) where !usedSplits.contains(id) {
+                splits.removeValue(forKey: id)?.removeFromSuperview()
+            }
             let needsFocus = selectedID != workspace.selectedID
             selectedID = workspace.selectedID
             DispatchQueue.main.async { [weak workspace] in
                 guard let workspace else { return }
                 workspace.window?.contentView?.layoutSubtreeIfNeeded()
-                for session in workspace.sessions where workspace.visibleSessionIDs.contains(session.id) && session.terminal.window != nil {
+                for session in workspace.sessions
+                where workspace.visibleSessionIDs.contains(session.id) && session.terminal.window != nil {
                     session.start()
                 }
                 if needsFocus, let terminal = workspace.selected?.terminal, terminal.window != nil {
@@ -81,7 +88,7 @@ final class WorkspaceSplitView: NSSplitView, NSSplitViewDelegate {
         super.init(frame: .zero)
         dividerStyle = .thin
         wantsLayer = true
-        layer?.backgroundColor = NSColor(srgbRed: 0.055, green: 0.063, blue: 0.078, alpha: 1).cgColor
+        layer?.backgroundColor = NSColor.clear.cgColor
         delegate = self
         setAccessibilityLabel("Resize terminal panes")
     }
@@ -107,14 +114,18 @@ final class WorkspaceSplitView: NSSplitView, NSSplitViewDelegate {
         let firstSize = available * ratio
         if isVertical {
             arrangedSubviews[0].frame = NSRect(x: 0, y: 0, width: firstSize, height: bounds.height)
-            arrangedSubviews[1].frame = NSRect(x: firstSize + dividerThickness, y: 0, width: available - firstSize, height: bounds.height)
+            arrangedSubviews[1].frame = NSRect(
+                x: firstSize + dividerThickness, y: 0, width: available - firstSize, height: bounds.height)
         } else {
             arrangedSubviews[0].frame = NSRect(x: 0, y: 0, width: bounds.width, height: firstSize)
-            arrangedSubviews[1].frame = NSRect(x: 0, y: firstSize + dividerThickness, width: bounds.width, height: available - firstSize)
+            arrangedSubviews[1].frame = NSRect(
+                x: 0, y: firstSize + dividerThickness, width: bounds.width, height: available - firstSize)
         }
     }
 
-    func splitView(_ splitView: NSSplitView, constrainSplitPosition proposedPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+    func splitView(
+        _ splitView: NSSplitView, constrainSplitPosition proposedPosition: CGFloat, ofSubviewAt dividerIndex: Int
+    ) -> CGFloat {
         let available = max(0, (isVertical ? bounds.width : bounds.height) - dividerThickness)
         return min(available * 0.9, max(available * 0.1, proposedPosition))
     }
