@@ -2,6 +2,36 @@ import Foundation
 
 enum SplitAxis: String, Codable { case horizontal, vertical }
 
+enum PaneDropZone: Equatable {
+    case leading, trailing, top, bottom
+
+    var axis: SplitAxis { self == .leading || self == .trailing ? .vertical : .horizontal }
+    var placesSourceFirst: Bool { self == .leading || self == .bottom }
+
+    func rect(in size: CGSize) -> CGRect {
+        switch self {
+        case .leading: CGRect(x: 0, y: 0, width: size.width * 0.38, height: size.height)
+        case .trailing: CGRect(x: size.width * 0.62, y: 0, width: size.width * 0.38, height: size.height)
+        case .top: CGRect(x: 0, y: 0, width: size.width, height: size.height * 0.38)
+        case .bottom: CGRect(x: 0, y: size.height * 0.62, width: size.width, height: size.height * 0.38)
+        }
+    }
+
+    static func at(_ point: CGPoint, in size: CGSize) -> PaneDropZone {
+        let horizontal = size.width > 0 ? point.x / size.width : 0.5
+        let vertical = size.height > 0 ? point.y / size.height : 0.5
+        let distances: [(PaneDropZone, CGFloat)] = [
+            (.leading, horizontal), (.trailing, 1 - horizontal), (.top, vertical), (.bottom, 1 - vertical)
+        ]
+        return distances.min(by: { $0.1 < $1.1 })?.0 ?? .leading
+    }
+}
+
+struct PaneDropPreview: Equatable {
+    let targetID: UUID
+    let zone: PaneDropZone
+}
+
 /// A tab owns a tree of panes. Leaf IDs are session IDs; split IDs survive edits.
 indirect enum PaneLayout: Codable, Equatable {
     case pane(UUID)
@@ -30,6 +60,34 @@ indirect enum PaneLayout: Codable, Equatable {
                 id: id, axis: direction, ratio: ratio,
                 first: first.splitting(target, with: newID, axis: axis),
                 second: second.splitting(target, with: newID, axis: axis))
+        }
+    }
+
+    func moving(_ source: UUID, onto target: UUID, zone: PaneDropZone) -> PaneLayout? {
+        guard source != target, sessionIDs.contains(source), sessionIDs.contains(target),
+            let remaining = removing(source),
+            let result = remaining.inserting(source, beside: target, zone: zone),
+            result.isValid()
+        else { return nil }
+        return result
+    }
+
+    private func inserting(_ source: UUID, beside target: UUID, zone: PaneDropZone) -> PaneLayout? {
+        switch self {
+        case .pane(let id):
+            guard id == target else { return self }
+            let sourcePane = PaneLayout.pane(source)
+            return .split(
+                id: UUID(), axis: zone.axis, ratio: 0.5,
+                first: zone.placesSourceFirst ? sourcePane : self,
+                second: zone.placesSourceFirst ? self : sourcePane)
+        case .split(let id, let axis, let ratio, let first, let second):
+            guard let movedFirst = first.inserting(source, beside: target, zone: zone) else { return nil }
+            if movedFirst != first {
+                return .split(id: id, axis: axis, ratio: ratio, first: movedFirst, second: second)
+            }
+            guard let movedSecond = second.inserting(source, beside: target, zone: zone) else { return nil }
+            return .split(id: id, axis: axis, ratio: ratio, first: first, second: movedSecond)
         }
     }
 

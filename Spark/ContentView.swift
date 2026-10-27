@@ -170,12 +170,66 @@ private struct SessionTab: View {
 }
 
 struct SessionPane: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var session: TerminalSession
     @ObservedObject var workspace: Workspace
+    @ObservedObject var paneDrag: PaneDragState
 
     var body: some View {
+        GeometryReader { geometry in
+            paneContent
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .onDrop(
+                    of: [PaneDragState.contentType],
+                    delegate: PaneDropDelegate(targetID: session.id, size: geometry.size, workspace: workspace))
+                .overlay {
+                    if let preview = paneDrag.preview, preview.targetID == session.id {
+                        let rect = preview.zone.rect(in: geometry.size)
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(ember.opacity(0.24))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 10)
+                                    .strokeBorder(ember.opacity(0.9), lineWidth: 2)
+                            }
+                            .frame(width: rect.width, height: rect.height)
+                            .position(x: rect.midX, y: rect.midY)
+                            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                    }
+                }
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.16), value: paneDrag.preview)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: session.directory) {
+            while !Task.isCancelled {
+                await session.refreshRepository()
+                do { try await Task.sleep(for: .seconds(3)) } catch { return }
+            }
+        }
+    }
+
+    private var paneContent: some View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: 10, weight: .medium)).foregroundStyle(.tertiary)
+                    .help("Drag to rearrange terminal")
+                    .accessibilityLabel("Drag to rearrange terminal")
+                    .onDrag {
+                        paneDrag.begin(session.id)
+                        let provider = NSItemProvider()
+                        provider.registerDataRepresentation(
+                            forTypeIdentifier: PaneDragState.contentType.identifier, visibility: .ownProcess
+                        ) { completion in
+                            completion(Data(session.id.uuidString.utf8), nil)
+                            return nil
+                        }
+                        return provider
+                    } preview: {
+                        Label(session.displayTitle, systemImage: "terminal")
+                            .font(.system(size: 12, weight: .medium))
+                            .padding(10)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    }
                 Image(systemName: "folder").foregroundStyle(ember.opacity(0.8))
                 Text(shortPath).lineLimit(1).truncationMode(.middle)
                 Spacer()
@@ -221,19 +275,62 @@ struct SessionPane: View {
             RoundedRectangle(cornerRadius: 12).strokeBorder(
                 workspace.selectedID == session.id ? ember.opacity(0.3) : .white.opacity(0.07))
         )
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: session.directory) {
-            while !Task.isCancelled {
-                await session.refreshRepository()
-                do { try await Task.sleep(for: .seconds(3)) } catch { return }
-            }
-        }
     }
 
     private var shortPath: String {
         let home = FileManager.default.homeDirectoryForCurrentUser.path
         let path = session.directory.path
         return path == home ? "~" : path.hasPrefix(home + "/") ? "~" + path.dropFirst(home.count) : path
+    }
+}
+
+private struct PaneDropDelegate: DropDelegate {
+    let targetID: UUID
+    let size: CGSize
+    let workspace: Workspace
+
+    func validateDrop(info: DropInfo) -> Bool {
+        guard let source = workspace.paneDrag.sourceID else { return false }
+        return workspace.canMovePane(source, onto: targetID)
+    }
+
+    func dropEntered(info: DropInfo) {
+        updatePreview(at: info.location)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        updatePreview(at: info.location)
+        return DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) {
+        workspace.paneDrag.clearPreview(target: targetID)
+    }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard let source = workspace.paneDrag.sourceID,
+            workspace.canMovePane(source, onto: targetID),
+            let provider = info.itemProviders(for: [PaneDragState.contentType]).first
+        else { return false }
+        let zone = PaneDropZone.at(info.location, in: size)
+        provider.loadDataRepresentation(forTypeIdentifier: PaneDragState.contentType.identifier) { data, _ in
+            guard let data, let value = String(data: data, encoding: .utf8), UUID(uuidString: value) == source else {
+                DispatchQueue.main.async { workspace.paneDrag.clearPreview() }
+                return
+            }
+            DispatchQueue.main.async {
+                _ = workspace.movePane(source, onto: targetID, zone: zone)
+            }
+        }
+        return true
+    }
+
+    private func updatePreview(at point: CGPoint) {
+        guard let source = workspace.paneDrag.sourceID,
+            workspace.canMovePane(source, onto: targetID)
+        else { workspace.paneDrag.clearPreview(target: targetID); return }
+        workspace.paneDrag.showPreview(
+            PaneDropPreview(targetID: targetID, zone: .at(point, in: size)))
     }
 }
 

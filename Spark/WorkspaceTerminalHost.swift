@@ -4,10 +4,13 @@ import SwiftUI
 /// Native split views own geometry. Each pane keeps its hosting view and PTY
 /// across selection, divider moves and changes to the surrounding split tree.
 struct WorkspaceTerminalHost: NSViewRepresentable {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var workspace: Workspace
     func makeCoordinator() -> Coordinator { Coordinator(workspace: workspace) }
     func makeNSView(context: Context) -> NSView { NSView() }
-    func updateNSView(_ view: NSView, context: Context) { context.coordinator.update(view) }
+    func updateNSView(_ view: NSView, context: Context) {
+        context.coordinator.update(view, reduceMotion: reduceMotion)
+    }
 
     @MainActor
     final class Coordinator {
@@ -15,10 +18,20 @@ struct WorkspaceTerminalHost: NSViewRepresentable {
         private var panes: [UUID: NSHostingView<SessionPane>] = [:]
         private var splits: [UUID: WorkspaceSplitView] = [:]
         private var selectedID: UUID?
+        private var paneLayoutAnimationID: UUID
 
-        init(workspace: Workspace) { self.workspace = workspace }
+        init(workspace: Workspace) {
+            self.workspace = workspace
+            paneLayoutAnimationID = workspace.paneLayoutAnimationID
+        }
 
-        func update(_ container: NSView) {
+        func update(_ container: NSView, reduceMotion: Bool) {
+            var paneFrames: [UUID: NSRect] = [:]
+            for (id, pane) in panes where pane.window != nil {
+                paneFrames[id] = pane.convert(pane.bounds, to: nil)
+            }
+            let animatePaneMove = paneLayoutAnimationID != workspace.paneLayoutAnimationID
+            paneLayoutAnimationID = workspace.paneLayoutAnimationID
             let live = Set(workspace.sessions.map(\.id))
             for id in Array(panes.keys) where !live.contains(id) {
                 panes.removeValue(forKey: id)?.removeFromSuperview()
@@ -47,6 +60,7 @@ struct WorkspaceTerminalHost: NSViewRepresentable {
             DispatchQueue.main.async { [weak workspace] in
                 guard let workspace else { return }
                 workspace.window?.contentView?.layoutSubtreeIfNeeded()
+                if animatePaneMove { self.animatePaneMoves(from: paneFrames, reduceMotion: reduceMotion) }
                 for session in workspace.sessions
                 where workspace.visibleSessionIDs.contains(session.id) && session.terminal.window != nil {
                     session.start()
@@ -57,12 +71,28 @@ struct WorkspaceTerminalHost: NSViewRepresentable {
             }
         }
 
+        private func animatePaneMoves(from oldFrames: [UUID: NSRect], reduceMotion: Bool) {
+            for (id, oldFrame) in oldFrames {
+                guard let pane = panes[id], let parent = pane.superview else { continue }
+                let targetFrame = pane.frame
+                if reduceMotion { pane.frame = targetFrame; continue }
+                pane.frame = parent.convert(oldFrame, from: nil)
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.22
+                    context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                    pane.animator().setFrameOrigin(targetFrame.origin)
+                    pane.animator().setFrameSize(targetFrame.size)
+                }
+            }
+        }
+
         private func makeView(_ layout: PaneLayout, usedSplits: inout Set<UUID>) -> NSView {
             switch layout {
             case .pane(let id):
                 if let pane = panes[id] { return pane }
                 guard let session = workspace.sessions.first(where: { $0.id == id }) else { return NSView() }
-                let pane = NSHostingView(rootView: SessionPane(session: session, workspace: workspace))
+                let pane = NSHostingView(
+                    rootView: SessionPane(session: session, workspace: workspace, paneDrag: workspace.paneDrag))
                 pane.sizingOptions = []
                 panes[id] = pane
                 return pane
