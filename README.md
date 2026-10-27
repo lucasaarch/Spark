@@ -39,7 +39,7 @@ Built with SwiftUI and AppKit, powered by [SwiftTerm](https://github.com/migueld
 
 Spark requires **macOS 14 Sonoma or later**. Release builds support **Apple Silicon and Intel**.
 
-Download **Spark-1.0.0.dmg** from [GitHub Releases](https://github.com/lucasaarch/Spark/releases/latest), open it, and drag **Spark** into **Applications**. Both the app and disk image are signed with Developer ID and notarized by Apple. Future updates arrive through Sparkle.
+Download **Spark-1.1.0.dmg** from [GitHub Releases](https://github.com/lucasaarch/Spark/releases/latest), open it, and drag **Spark** into **Applications**. Both the app and disk image are signed with Developer ID and notarized by Apple. Future updates arrive through Sparkle.
 
 The release also includes a ZIP for the updater and SHA-256 checksums for both downloads.
 
