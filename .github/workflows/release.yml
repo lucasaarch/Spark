@@ -13,6 +13,7 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 60
     permissions:
+      actions: read
       contents: write
     env:
       GH_TOKEN: ${{ github.token }}
@@ -27,12 +28,24 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Select Xcode
         run: sudo xcode-select -s /Applications/Xcode_26.6.app
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: .build/SourcePackages
+          key: spm-${{ runner.os }}-${{ runner.arch }}-26.6-${{ hashFiles('**/Package.resolved') }}
       - name: SwiftLint
         run: scripts/lint.sh
+      - name: Require successful CI for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ci_runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&branch=main&per_page=100" \
+            --jq "[.workflow_runs[] | select(.event == \"push\" and .head_branch == \"main\" and .head_sha == \"$GITHUB_SHA\" and .conclusion == \"success\")] | length")
+          if [[ "$ci_runs" == 0 ]]; then
+            echo "::error::Publish only after CI succeeds for this exact commit on main ($GITHUB_SHA)."
+            exit 1
+          fi
       - name: Validate signing configuration
         run: scripts/release.sh --check
-      - name: Test
-        run: scripts/check.sh
       - name: Publish signed update
         run: scripts/release.sh
       - name: Upload build diagnostics
