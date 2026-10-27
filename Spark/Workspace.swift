@@ -67,6 +67,18 @@ final class Workspace: ObservableObject {
     }
 
     @discardableResult
+    func split(_ axis: SplitAxis) -> TerminalSession? {
+        guard canSplit, let selected,
+              let index = tabs.firstIndex(where: { $0.layout.sessionIDs.contains(selected.id) }) else { return nil }
+        let session = TerminalSession(directory: selected.directory)
+        register(session)
+        tabs[index].layout = tabs[index].layout.splitting(selected.id, with: session.id, axis: axis)
+        select(session)
+        changed()
+        return session
+    }
+
+    @discardableResult
     func apply(_ preset: PanePreset) -> Bool {
         guard canApply(preset), let current = selected,
               let tabIndex = tabs.firstIndex(where: { $0.layout.sessionIDs.contains(current.id) }) else { return false }
