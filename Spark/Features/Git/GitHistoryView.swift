@@ -45,7 +45,7 @@ struct GitHistoryView: View {
                     }.tag(commit.hash).padding(.vertical, 3)
                 }.frame(width: 300).listStyle(.plain).scrollContentBackground(.hidden)
                 Divider()
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 0) {
                     if let selected {
                         HStack {
                             Text(selected.subject).font(.headline).lineLimit(2); Spacer()
@@ -58,6 +58,7 @@ struct GitHistoryView: View {
                             }.disabled(
                                 actionState?.isClean != true)
                         }.padding(12)
+                        Divider().opacity(0.4)
                         HStack(spacing: 0) {
                             List(
                                 files,

@@ -316,7 +316,7 @@ struct SessionPane: View {
                 Text(shortPath).lineLimit(1).truncationMode(.middle)
                 Spacer()
                 PaneGitControls(session: session, workspace: workspace)
-                GitBranchSelector(session: session)
+                GitBranchSelector(session: session, workspace: workspace)
                 if session.agent != nil {
                     AgentBadge(session: session)
                 }

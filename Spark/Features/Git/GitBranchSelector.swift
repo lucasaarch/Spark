@@ -2,6 +2,7 @@ import SwiftUI
 
 struct GitBranchSelector: View {
     @ObservedObject var session: TerminalSession
+    @ObservedObject var workspace: Workspace
     @State private var isPresented = false
 
     var body: some View {
@@ -27,7 +28,7 @@ struct GitBranchSelector: View {
             .help("Switch Git branch · \(repository.branch)")
             .accessibilityLabel("Branch: \(repository.branch)")
             .popover(isPresented: $isPresented, arrowEdge: .bottom) {
-                GitBranchPickerPopover(session: session, close: { isPresented = false })
+                GitBranchPickerPopover(session: session, workspace: workspace, close: { isPresented = false })
             }
         }
     }
@@ -35,6 +36,7 @@ struct GitBranchSelector: View {
 
 private struct GitBranchPickerPopover: View {
     @ObservedObject var session: TerminalSession
+    @ObservedObject var workspace: Workspace
     let close: () -> Void
     @State private var branches: [GitBranch] = []
     @State private var query = ""
@@ -102,22 +104,20 @@ private struct GitBranchPickerPopover: View {
                     }
                 }
             }
-            .frame(maxHeight: 280)
+            .frame(maxHeight: 180)
 
             if let message {
                 Text(message).font(.system(size: 10)).foregroundStyle(.orange).textSelection(.enabled)
             }
 
             Divider().opacity(0.5)
-            Button {
-                showsCreateDialog = true
-            } label: {
-                Label("Create Branch…", systemImage: "plus")
-                    .font(.system(size: 11, weight: .medium))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain).disabled(isWorking)
+            GitWorktreeActions(
+                session: session,
+                workspace: workspace,
+                close: close,
+                createBranch: { showsCreateDialog = true },
+                isBranchActionDisabled: isWorking
+            )
         }
         .padding(14).frame(width: 310, alignment: .leading)
         .preferredColorScheme(.dark)

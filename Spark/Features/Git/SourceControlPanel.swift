@@ -161,34 +161,26 @@ struct SourceControlPanel: View {
     }
 
     private func syncActions(_ snapshot: GitSourceSnapshot) -> some View {
-        GeometryReader { geometry in
-            let buttonWidth = max(0, (geometry.size.width - 18) / 4)
-            HStack(spacing: 6) {
-                Button {
-                    perform { try await sourceControl.stashChanges() }
-                } label: {
-                    Text("Stash").frame(maxWidth: .infinity)
-                }
-                .frame(width: buttonWidth)
-                .disabled(sourceControl.isWorking || snapshot.files.isEmpty)
-                .help("Save staged, unstaged, and untracked changes")
-                Button {
-                    perform { try await sourceControl.fetch() }
-                } label: {
-                    Text("Fetch").frame(maxWidth: .infinity)
-                }
-                .frame(width: buttonWidth)
-                .disabled(sourceControl.isWorking)
-                middleSyncAction(snapshot)
-                    .frame(width: buttonWidth)
-                pushButton(snapshot)
-                    .frame(width: buttonWidth)
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
+            Button {
+                perform { try await sourceControl.fetch() }
+            } label: {
+                Text("Fetch").frame(maxWidth: .infinity)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .font(.system(size: 10, weight: .medium))
+            .disabled(sourceControl.isWorking)
+            middleSyncAction(snapshot)
+            Button {
+                perform { try await sourceControl.stashChanges() }
+            } label: {
+                Text("Stash").frame(maxWidth: .infinity)
+            }
+            .disabled(sourceControl.isWorking || snapshot.files.isEmpty)
+            .help("Save staged, unstaged, and untracked changes")
+            pushButton(snapshot)
         }
-        .frame(height: 24)
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .font(.system(size: 10, weight: .medium))
     }
 
     @ViewBuilder
@@ -201,34 +193,40 @@ struct SourceControlPanel: View {
             }
             .disabled(sourceControl.isWorking || snapshot.sync.behind == 0 || !snapshot.files.isEmpty)
             .help(snapshot.files.isEmpty ? "Fast-forward from \(upstream)" : "Stash or commit changes before pulling")
-        } else if !snapshot.sync.remotes.isEmpty {
-            Menu {
-                ForEach(snapshot.sync.remotes, id: \.self) { remote in
-                    Button(remote) { perform { try await sourceControl.publishBranch(to: remote) } }
-                }
-            } label: {
-                Text("Publish").frame(maxWidth: .infinity)
-            }
-            .disabled(sourceControl.isWorking || snapshot.branch == "Detached HEAD")
-            .help("Publish this branch to a remote")
         } else {
             Button {
             } label: {
                 Text("Pull").frame(maxWidth: .infinity)
             }
             .disabled(true)
-            .help("No remote is configured for this repository")
+            .help("Publish the branch to origin before pulling")
         }
     }
 
+    @ViewBuilder
     private func pushButton(_ snapshot: GitSourceSnapshot) -> some View {
-        Button {
-            perform { try await sourceControl.push() }
-        } label: {
-            Text("Push").frame(maxWidth: .infinity)
+        if snapshot.sync.upstream == nil {
+            Button {
+                perform { try await sourceControl.publishBranch(to: "origin") }
+            } label: {
+                Text("Publish").frame(maxWidth: .infinity)
+            }
+            .disabled(
+                sourceControl.isWorking || !snapshot.sync.remotes.contains("origin")
+                    || snapshot.branch == "Detached HEAD")
+            .help(
+                snapshot.sync.remotes.contains("origin")
+                    ? "Publish this branch to origin and set it as the upstream"
+                    : "Add an origin remote before publishing this branch")
+        } else {
+            Button {
+                perform { try await sourceControl.push() }
+            } label: {
+                Text("Push").frame(maxWidth: .infinity)
+            }
+            .disabled(snapshot.sync.ahead == 0 || sourceControl.isWorking)
+            .help("Push the current branch to its upstream")
         }
-        .disabled(sourceControl.isWorking || snapshot.sync.upstream == nil || snapshot.sync.ahead == 0)
-        .help(snapshot.sync.upstream.map { "Push the current branch to \($0)" } ?? "Publish this branch before pushing")
     }
 
     private func syncCount(_ icon: String, _ count: Int, color: Color, label: String) -> some View {

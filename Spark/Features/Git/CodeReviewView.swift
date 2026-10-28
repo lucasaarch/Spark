@@ -179,7 +179,7 @@ final class ReviewCodeContainer: NSView {
 
     override func layout() {
         super.layout()
-        let width = min(88, bounds.width)
+        let width = min(60, bounds.width)
         gutter.frame = NSRect(x: 0, y: 0, width: width, height: bounds.height)
         scroll.frame = NSRect(x: width, y: 0, width: max(0, bounds.width - width), height: bounds.height)
         scroll.tile()
@@ -254,17 +254,17 @@ private final class ReviewLineGutter: NSView {
         let range = layout.glyphRange(forBoundingRect: visible, in: container)
         let style = NSMutableParagraphStyle(); style.alignment = .right
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: NSFont.monospacedDigitSystemFont(ofSize: 10, weight: .regular),
+            .font: NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .regular),
             .foregroundColor: NSColor(srgbRed: 0.43, green: 0.47, blue: 0.55, alpha: 1), .paragraphStyle: style
         ]
         layout.enumerateLineFragments(forGlyphRange: range) { line, _, _, glyphs, _ in
             let index = layout.characterIndexForGlyph(at: glyphs.location)
             guard index < storage.length else { return }
             let y = self.convert(NSPoint(x: 0, y: line.minY + text.textContainerOrigin.y), from: text).y + 3
-            for (key, x) in [(NSAttributedString.Key.oldLine, CGFloat(4)), (.newLine, CGFloat(46))] {
+            for (key, x) in [(NSAttributedString.Key.oldLine, CGFloat(2)), (.newLine, CGFloat(30))] {
                 if let number = storage.attribute(key, at: index, effectiveRange: nil) as? Int {
                     (String(number) as NSString).draw(
-                        in: NSRect(x: x, y: y, width: 32, height: 18), withAttributes: attributes)
+                        in: NSRect(x: x, y: y, width: 26, height: 18), withAttributes: attributes)
                 }
             }
         }

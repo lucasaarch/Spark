@@ -3,7 +3,6 @@ import SwiftUI
 struct PaneGitControls: View {
     @ObservedObject var session: TerminalSession
     @ObservedObject var workspace: Workspace
-    @State private var showsWorktree = false
 
     var body: some View {
         Group {
@@ -15,20 +14,6 @@ struct PaneGitControls: View {
                 }
                 .buttonStyle(.plain).help("Review changes in \(repository.root) · ⇧⌘G")
                 .accessibilityLabel("Review changes for \(session.displayTitle)")
-                Button {
-                    Task {
-                        await session.refreshRepository()
-                        if session.repository != nil { showsWorktree.toggle() }
-                    }
-                } label: {
-                    Image(systemName: "arrow.triangle.branch").frame(width: 23, height: 24)
-                }
-                .buttonStyle(.plain).foregroundStyle(repository.isWorktree ? Color.orange : Color.secondary)
-                .help("\(repository.branch) · \(repository.root)")
-                .accessibilityLabel("Worktree for \(session.displayTitle)")
-                .popover(isPresented: $showsWorktree, arrowEdge: .bottom) {
-                    WorktreePopover(session: session, workspace: workspace, close: { showsWorktree = false })
-                }
             }
             Button {
                 workspace.commandHistorySession = session
@@ -41,10 +26,12 @@ struct PaneGitControls: View {
     }
 }
 
-private struct WorktreePopover: View {
+struct GitWorktreeActions: View {
     @ObservedObject var session: TerminalSession
     @ObservedObject var workspace: Workspace
     let close: () -> Void
+    let createBranch: () -> Void
+    let isBranchActionDisabled: Bool
     @State private var busy = false
     @State private var message: String?
     @State private var mergePlan: GitMergePlan?
@@ -61,13 +48,10 @@ private struct WorktreePopover: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             if let repo = session.repository {
-                HStack {
-                    Image(systemName: "arrow.triangle.branch").foregroundStyle(.orange).frame(width: 18)
-                    Text(repo.branch).font(.headline).lineLimit(2)
-                    Spacer()
-                    if busy { ProgressView().controlSize(.small) }
-                }
-                Divider()
+                if busy { ProgressView().controlSize(.small).frame(maxWidth: .infinity, alignment: .trailing) }
+                Button(action: createBranch) {
+                    actionLabel("Create Branch…", icon: "plus")
+                }.disabled(busy || isBranchActionDisabled)
                 Button {
                     close()
                     workspace.showWorktreeCreator(for: session)
@@ -107,8 +91,8 @@ private struct WorktreePopover: View {
             }
             if let message { Text(message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
         }
-        .font(.system(size: 12)).foregroundStyle(.primary)
-        .buttonStyle(.plain).padding(16).frame(width: 330, alignment: .leading)
+        .font(.system(size: 11)).foregroundStyle(.primary)
+        .buttonStyle(.plain).frame(maxWidth: .infinity, alignment: .leading)
         .preferredColorScheme(.dark)
         .alert("Merge Worktree", isPresented: $confirmsMerge) {
             Button("Cancel", role: .cancel) { mergePlan = nil }
@@ -161,7 +145,6 @@ private struct WorktreePopover: View {
             await session.refreshRepository()
         }
     }
-
 }
 
 struct WorktreeView: View {
