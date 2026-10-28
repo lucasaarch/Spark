@@ -194,6 +194,10 @@ struct CommandPalette: View {
                 id: "activity", title: "Toggle Activity", detail: "Agents and recent conversations across workspaces",
                 symbol: "sidebar.right", shortcut: "⇧⌘A", enabled: true, run: { workspace.showsActivity.toggle() }),
             PaletteCommand(
+                id: "source-control", title: "Source Control", detail: "Stage files and create commits",
+                symbol: "point.3.connected.trianglepath.dotted", shortcut: "", enabled: workspace.selected != nil,
+                run: { workspace.showsSourceControl.toggle() }),
+            PaletteCommand(
                 id: "worktree", title: "New Worktree…", detail: "From the focused terminal's repository",
                 symbol: "arrow.triangle.branch", shortcut: "⇧⌘N", enabled: workspace.selected?.repository != nil,
                 run: { workspace.showWorktreeCreator() }),

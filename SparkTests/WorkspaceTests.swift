@@ -54,6 +54,7 @@ extension NativePresentationTests {
             workspace.add()
             workspace.select(second)
             workspace.focusMode = true
+            workspace.showsSourceControl = true
             let store = WorkspaceStore(fileURL: url)
             store.save(workspace.snapshot())
             store.setOpenIDs([workspace.id])
@@ -71,7 +72,15 @@ extension NativePresentationTests {
             #expect(restored.sessions.first?.customTitle == "Tests")
             #expect(restored.sessions.first?.directory == first.directory)
             #expect(restored.focusMode)
+            #expect(restored.showsSourceControl)
             #expect(restored.sessions.allSatisfy { $0.status == .ready && !$0.terminal.process.running })
+            workspace.showsActivity = true
+            store.save(workspace.snapshot())
+            store.flush()
+            let activityWorkspace = try #require(WorkspaceStore(fileURL: url).workspaces.first)
+            let restoredActivity = Workspace(snapshot: activityWorkspace)
+            defer { restoredActivity.stopAll() }
+            #expect(restoredActivity.showsActivity)
             let text = try String(contentsOf: url, encoding: .utf8)
             #expect(!text.contains("scrollback") && !text.contains("environment"))
             let permissions = try FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? NSNumber

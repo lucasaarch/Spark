@@ -3,6 +3,60 @@ import Testing
 @testable import Spark
 
 struct GitMutationTests {
+    @Test func sourceControlKeepsIndexAndWorkingTreeStatusesSeparate() throws {
+        let fixture = try GitWorkflowTests.RepositoryFixture()
+        defer { fixture.remove() }
+        let root = fixture.repository.path
+        try "staged edit\n".write(toFile: root + "/tracked.txt", atomically: true, encoding: .utf8)
+        try GitRepository.stage("tracked.txt", at: root)
+        try "working edit\n".write(toFile: root + "/tracked.txt", atomically: true, encoding: .utf8)
+        try "new file\n".write(toFile: root + "/added.txt", atomically: true, encoding: .utf8)
+        try GitRepository.stage("added.txt", at: root)
+        try "untracked\n".write(toFile: root + "/untracked.txt", atomically: true, encoding: .utf8)
+
+        let snapshot = try GitRepository.sourceControl(at: root)
+        let tracked = try #require(snapshot.files.first { $0.path == "tracked.txt" })
+        let added = try #require(snapshot.files.first { $0.path == "added.txt" })
+        let untracked = try #require(snapshot.files.first { $0.path == "untracked.txt" })
+        #expect(tracked.statusLetter(isStaged: true) == "M")
+        #expect(tracked.statusLetter(isStaged: false) == "M")
+        #expect(added.statusLetter(isStaged: true) == "A")
+        #expect(untracked.statusLetter(isStaged: false) == "U")
+    }
+
+    @Test func stagingAndCommitPreserveUnstagedWorkAndRejectChangedIndex() throws {
+        let fixture = try GitWorkflowTests.RepositoryFixture()
+        defer { fixture.remove() }
+        let root = fixture.repository.path
+        let tracked = URL(fileURLWithPath: root).appendingPathComponent("tracked.txt")
+        try "staged version\n".write(to: tracked, atomically: true, encoding: .utf8)
+        try GitRepository.stage("tracked.txt", at: root)
+        let expected = try GitRepository.sourceControl(at: root)
+        #expect(expected.stagedFiles.map(\.path) == ["tracked.txt"])
+        #expect(expected.unstagedFiles.isEmpty)
+
+        try "later working edit\n".write(to: tracked, atomically: true, encoding: .utf8)
+        try "new file\n".write(
+            to: URL(fileURLWithPath: root).appendingPathComponent("new.txt"), atomically: true, encoding: .utf8)
+        try GitRepository.commit(at: root, message: "Keep only staged content", expected: expected)
+
+        #expect(try String(contentsOf: tracked, encoding: .utf8) == "later working edit\n")
+        #expect(try GitRepository.run(at: root, ["show", "HEAD:tracked.txt"]) == "staged version\n")
+        let remaining = try GitRepository.sourceControl(at: root)
+        #expect(remaining.stagedFiles.isEmpty)
+        #expect(remaining.unstagedFiles.map(\.path).sorted() == ["new.txt", "tracked.txt"])
+
+        try GitRepository.stage("new.txt", at: root)
+        let stale = try GitRepository.sourceControl(at: root)
+        try GitRepository.stage("tracked.txt", at: root)
+        #expect(throws: GitFailure.self) {
+            try GitRepository.commit(at: root, message: "Reject stale index", expected: stale)
+        }
+        try GitRepository.unstage("new.txt", at: root)
+        #expect(FileManager.default.fileExists(atPath: root + "/new.txt"))
+        #expect(try GitRepository.sourceControl(at: root).stagedFiles.map(\.path) == ["tracked.txt"])
+    }
+
     @Test func namesHaveTwoWordsAndCreationPinsTheSourceBranch() throws {
         for _ in 0..<40 {
             let name = GitRepository.suggestedName()

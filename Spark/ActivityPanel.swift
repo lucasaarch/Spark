@@ -84,7 +84,16 @@ private struct WorkspaceActivitySection: View {
                                 Text(conversation.title).lineLimit(1)
                                 Spacer(minLength: 0)
                             }.padding(.vertical, 6).contentShape(Rectangle())
-                        }.buttonStyle(.plain).help("Resume in a new tab · \(conversation.directory)")
+                        }
+                        .buttonStyle(.plain)
+                        .help("Resume in a new tab · \(conversation.directory)")
+                        .contextMenu {
+                            Button(role: .destructive) {
+                                workspace.deleteConversation(conversation)
+                            } label: {
+                                Label("Delete Conversation", systemImage: "trash")
+                            }
+                        }
                     }
                 }
             }
@@ -103,15 +112,11 @@ private struct ActivitySessionRow: View {
                 Button {
                     catalog.activateSession?(workspace.id, session.id)
                 } label: {
-                    HStack(alignment: .top, spacing: 9) {
+                    HStack(alignment: .center, spacing: 9) {
                         Image(agent.provider == .codex ? "OpenAI" : "Anthropic").resizable().scaledToFit()
                             .frame(width: 18, height: 18).foregroundStyle(agent.color)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(session.displayTitle).font(.system(size: 12, weight: .medium)).lineLimit(2)
-                            HStack(spacing: 5) {
-                                AgentStatusIcon(agent: agent, size: 18)
-                                Text(agent.label).font(.system(size: 10))
-                            }.foregroundStyle(agent.color)
                             if let message = agent.message {
                                 Text(message).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
                             }
@@ -128,6 +133,7 @@ private struct ActivitySessionRow: View {
             .padding(11)
             .background(agent.color.opacity(0.055), in: RoundedRectangle(cornerRadius: 10))
             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(agent.color.opacity(0.16)))
+            .overlay { AIBorderGlow(isActive: agent.state == .working, cornerRadius: 10) }
         }
     }
 }

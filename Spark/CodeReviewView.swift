@@ -18,7 +18,7 @@ actor ReviewRenderer {
     static let shared = ReviewRenderer()
     private let highlighter: Highlighter? = {
         let value = Highlighter()
-        _ = value?.setTheme("atom-one-dark", withFont: "Menlo-Regular", ofSize: 12)
+        _ = value?.setTheme("tokyo-night-dark", withFont: "Menlo-Regular", ofSize: 12)
         return value
     }()
 

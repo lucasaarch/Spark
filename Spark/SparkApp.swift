@@ -228,9 +228,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         if workspace == nil { newWindow(nil) }; workspace?.showsSettings = true
     }
     @objc private func activity(_ sender: Any?) { workspace?.showsActivity.toggle() }
+    @objc private func sourceControl(_ sender: Any?) { workspace?.showsSourceControl.toggle() }
     @objc private func newWorktree(_ sender: Any?) { workspace?.showWorktreeCreator() }
     @objc private func reviewChanges(_ sender: Any?) { workspace?.showReview() }
-    @objc private func updates(_ sender: Any?) { updater.checkForUpdates(sender) }
+    @objc func updates(_ sender: Any?) { updater.checkForUpdates(sender) }
+    var canCheckForUpdates: Bool { updater.updater.canCheckForUpdates }
     @objc private func nextTab(_ sender: Any?) { workspace?.selectNext(1) }
     @objc private func previousTab(_ sender: Any?) { workspace?.selectNext(-1) }
     @objc private func focusMode(_ sender: Any?) { workspace?.focusMode.toggle() }
@@ -253,7 +255,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
             return workspace?.canSplit == true
         }
         if menuItem.action == #selector(nextPane(_:)) { return (workspace?.visibleSessionIDs.count ?? 0) > 1 }
-        if menuItem.action == #selector(updates(_:)) { return updater.updater.canCheckForUpdates }
+        if menuItem.action == #selector(updates(_:)) { return canCheckForUpdates }
         if [#selector(newWindow(_:)), #selector(newTab(_:)), #selector(settings(_:)), #selector(commandPalette(_:))]
             .contains(menuItem.action) {
             return true
@@ -318,6 +320,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         item(edit, "Find…", #selector(find(_:)), "f", target: self)
         let view = section("View")
         item(view, "Toggle Activity", #selector(activity(_:)), "a", [.command, .shift], target: self)
+        item(view, "Source Control", #selector(sourceControl(_:)), target: self)
         item(view, "Increase Text Size", #selector(bigger(_:)), "=", target: self)
         item(view, "Decrease Text Size", #selector(smaller(_:)), "-", target: self)
         item(view, "Reset Text Size", #selector(resetSize(_:)), "0", target: self)

@@ -7,6 +7,7 @@ struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var workspace: Workspace
     @ObservedObject var catalog: WorkspaceStore
+    @StateObject private var sourceControl = GitSourceControlStore()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -20,6 +21,9 @@ struct ContentView: View {
             HStack(spacing: 12) {
                 WorkspaceTerminalHost(workspace: workspace)
                 if workspace.showsActivity { ActivityPanel(workspace: workspace, catalog: catalog) }
+                if workspace.showsSourceControl, let session = workspace.selected {
+                    SourceControlPanel(session: session, workspace: workspace, sourceControl: sourceControl)
+                }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(.horizontal, workspace.focusMode ? 8 : 16)
@@ -45,7 +49,9 @@ struct ContentView: View {
             }
         )
         .sheet(item: $workspace.worktreeSession) { session in WorktreeView(session: session, workspace: workspace) }
-        .sheet(item: $workspace.reviewSession) { session in ChangesView(session: session) }
+        .sheet(item: $workspace.reviewSession) {
+            ChangesView(session: $0, sourceControl: sourceControl)
+        }
         .alert(
             "Unable to Open",
             isPresented: Binding(get: { workspace.actionError != nil }, set: { if !$0 { workspace.actionError = nil } })
@@ -72,7 +78,12 @@ struct ContentView: View {
                 .shadow(color: ember.opacity(0.3), radius: 14)
             Text("Spark").font(.system(size: 18, weight: .semibold, design: .rounded))
             Spacer()
-            tool("sidebar.right", "Activity · ⇧⌘A") { workspace.showsActivity.toggle() }
+            tool("sidebar.right", "Activity · ⇧⌘A", isActive: workspace.showsActivity) {
+                workspace.showsActivity.toggle()
+            }
+            tool("point.3.connected.trianglepath.dotted", "Source Control", isActive: workspace.showsSourceControl) {
+                workspace.showsSourceControl.toggle()
+            }
             LayoutPresetMenu(workspace: workspace)
             tool("folder.badge.plus", "Open folder…", action: workspace.openDirectory)
             tool("arrow.up.left.and.arrow.down.right", "Focus mode · ⇧⌘F") { workspace.focusMode = true }
@@ -101,9 +112,11 @@ struct ContentView: View {
         .padding(.horizontal, 16).padding(.bottom, 12)
     }
 
-    private func tool(_ icon: String, _ label: String, action: @escaping () -> Void) -> some View {
+    private func tool(
+        _ icon: String, _ label: String, isActive: Bool = false, action: @escaping () -> Void
+    ) -> some View {
         Button(action: action) { Image(systemName: icon).frame(width: 28, height: 28) }
-            .buttonStyle(ChromeButtonStyle()).help(label).accessibilityLabel(label)
+            .buttonStyle(ChromeButtonStyle(isActive: isActive)).help(label).accessibilityLabel(label)
     }
 }
 
@@ -178,6 +191,7 @@ private struct SessionTab: View {
                         ?? (selected ? ember.opacity(0.25) : .white.opacity(0.04)),
                 lineWidth: paneDrag.tabTargetID == tabID ? 2 : 1)
         )
+        .overlay { AIBorderGlow(isActive: session.agent?.state == .working, cornerRadius: 9) }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.14), value: paneDrag.tabTargetID)
         .background {
             GeometryReader { geometry in
@@ -637,8 +651,10 @@ private struct VisualEffect: NSViewRepresentable {
 }
 
 private struct ChromeButtonStyle: ButtonStyle {
+    var isActive = false
+
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label.foregroundStyle(configuration.isPressed ? ember : Color.secondary)
+        configuration.label.foregroundStyle(configuration.isPressed || isActive ? ember : Color.secondary)
             .background(configuration.isPressed ? .white.opacity(0.10) : .clear, in: RoundedRectangle(cornerRadius: 5))
             .contentShape(Rectangle())
     }
@@ -648,7 +664,12 @@ private struct SettingsView: View {
     @ObservedObject var workspace: Workspace
     @AppStorage("fontSize") private var fontSize = 14.0
     @AppStorage("optionAsMeta") private var optionAsMeta = false
+    @AppStorage("commitMessageProvider") private var commitMessageProvider = CommitMessageProvider.codex.rawValue
     @Environment(\.dismiss) private var dismiss
+
+    private var selectedCommitProvider: CommitMessageProvider {
+        CommitMessageProvider(rawValue: commitMessageProvider) ?? .codex
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 22) {
@@ -670,6 +691,25 @@ private struct SettingsView: View {
             Text("Leave this off to type accented characters with your keyboard’s Option combinations.")
                 .font(.caption).foregroundStyle(.secondary)
             Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Commit message generation").font(.headline)
+                Picker("AI provider", selection: $commitMessageProvider) {
+                    ForEach(CommitMessageProvider.allCases) { provider in
+                        Text(provider.title).tag(provider.rawValue)
+                    }
+                }
+                .pickerStyle(.segmented)
+                if let path = CommitMessageGenerator.executablePath(for: selectedCommitProvider) {
+                    Text("Using \(selectedCommitProvider.title) at \(path).")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled)
+                } else {
+                    Text("Install and sign in to the \(selectedCommitProvider.title) CLI to generate messages.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text("The staged diff and file names are sent to the selected provider.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Divider()
             Text("Workspaces save automatically. Restoring opens fresh shells in the saved folders.")
                 .font(.caption).foregroundStyle(.secondary)
             Divider()
@@ -677,6 +717,10 @@ private struct SettingsView: View {
                 Text("Spark \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")")
                     .font(.caption).foregroundStyle(.secondary)
                 Spacer()
+                Button("Check for Updates…") {
+                    (NSApp.delegate as? AppDelegate)?.updates(nil)
+                }
+                .disabled((NSApp.delegate as? AppDelegate)?.canCheckForUpdates != true)
                 Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
             }
         }
