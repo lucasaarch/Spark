@@ -144,7 +144,7 @@ struct ConversationWorkflowTests {
         let startupFile = fixture.folder.appendingPathComponent(".zshrc")
         let startup =
             try String(contentsOf: startupFile, encoding: .utf8)
-                .replacingOccurrences(of: "unsetopt zle\n", with: "") + """
+            .replacingOccurrences(of: "unsetopt zle\n", with: "") + """
 
                 exec {saved_in}<&0 {saved_out}>&1 {saved_err}>&2
                 exec </dev/null >"$HOME/startup-output" 2>&1
@@ -178,7 +178,8 @@ struct ConversationWorkflowTests {
         defer { session.stop() }
         session.start(environment: fixture.environment(percent: 10))
         // The launcher reports its provider before the CLI writes its output.
-        let expectedResume = "RESUMED_WITH_TTY:\(provider == .codex ? "resume" : "--resume")|\(id.uuidString.lowercased())"
+        let expectedResume =
+            "RESUMED_WITH_TTY:\(provider == .codex ? "resume" : "--resume")|\(id.uuidString.lowercased())"
         var output = ""
         for _ in 0..<300 {
             output = String(decoding: session.terminal.getBufferAsData(), as: UTF8.self)

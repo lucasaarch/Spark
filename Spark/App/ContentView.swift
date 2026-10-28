@@ -52,6 +52,15 @@ struct ContentView: View {
         .sheet(item: $workspace.reviewSession) {
             ChangesView(session: $0, sourceControl: sourceControl)
         }
+        .sheet(item: $workspace.quickOpenSession) {
+            QuickOpenView(session: $0, workspace: workspace, sourceControl: sourceControl)
+        }
+        .sheet(item: $workspace.historySession) { GitHistoryView(session: $0) }
+        .sheet(item: $workspace.worktreeManagerSession) {
+            GitWorktreeManagerView(session: $0, workspace: workspace, catalog: catalog)
+        }
+        .sheet(item: $workspace.commandHistorySession) { TerminalCommandHistoryView(session: $0) }
+        .sheet(item: $workspace.comparisonSession) { GitBranchComparisonView(session: $0) }
         .alert(
             "Unable to Open",
             isPresented: Binding(get: { workspace.actionError != nil }, set: { if !$0 { workspace.actionError = nil } })
@@ -186,7 +195,8 @@ private struct SessionTab: View {
         )
         .overlay(
             RoundedRectangle(cornerRadius: 9).strokeBorder(
-                paneDrag.tabTargetID == tabID ? ember.opacity(0.95)
+                paneDrag.tabTargetID == tabID
+                    ? ember.opacity(0.95)
                     : session.agent?.color.opacity(selected ? 0.5 : 0.22)
                         ?? (selected ? ember.opacity(0.25) : .white.opacity(0.04)),
                 lineWidth: paneDrag.tabTargetID == tabID ? 2 : 1)
@@ -306,6 +316,7 @@ struct SessionPane: View {
                 Text(shortPath).lineLimit(1).truncationMode(.middle)
                 Spacer()
                 PaneGitControls(session: session, workspace: workspace)
+                GitBranchSelector(session: session)
                 if session.agent != nil {
                     AgentBadge(session: session)
                 }
@@ -692,7 +703,7 @@ private struct SettingsView: View {
                 .font(.caption).foregroundStyle(.secondary)
             Divider()
             VStack(alignment: .leading, spacing: 8) {
-                Text("Commit message generation").font(.headline)
+                Text("Git AI provider").font(.headline)
                 Picker("AI provider", selection: $commitMessageProvider) {
                     ForEach(CommitMessageProvider.allCases) { provider in
                         Text(provider.title).tag(provider.rawValue)
@@ -706,8 +717,12 @@ private struct SettingsView: View {
                     Text("Install and sign in to the \(selectedCommitProvider.title) CLI to generate messages.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
-                Text("The staged diff and file names are sent to the selected provider.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text(
+                    """
+                    The staged diff is sent when generating a commit message. Conflict contents are sent only when you choose Fix Merge Conflicts, after a confirmation.
+                    """
+                )
+                .font(.caption).foregroundStyle(.secondary)
             }
             Divider()
             Text("Workspaces save automatically. Restoring opens fresh shells in the saved folders.")

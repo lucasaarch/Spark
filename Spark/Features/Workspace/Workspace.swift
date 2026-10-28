@@ -76,6 +76,11 @@ final class Workspace: ObservableObject {
     }
     @Published var worktreeSession: TerminalSession?
     @Published var reviewSession: TerminalSession?
+    @Published var quickOpenSession: TerminalSession?
+    @Published var historySession: TerminalSession?
+    @Published var worktreeManagerSession: TerminalSession?
+    @Published var commandHistorySession: TerminalSession?
+    @Published var comparisonSession: TerminalSession?
     @Published var actionError: String?
     @Published private(set) var conversations: [AgentConversation] = []
     @Published var focusMode = false { didSet { changed() } }
@@ -196,6 +201,15 @@ final class Workspace: ObservableObject {
                 actionError = "This terminal is not inside a Git repository."; return
             }
             worktreeSession = source
+        }
+    }
+
+    func showQuickOpen(for source: TerminalSession? = nil) {
+        guard let source = source ?? selected else { return }
+        Task {
+            await source.refreshRepository()
+            guard sessions.contains(where: { $0 === source }), source.repository != nil else { return }
+            quickOpenSession = source
         }
     }
 

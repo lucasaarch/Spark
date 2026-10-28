@@ -100,29 +100,38 @@ struct ChangesView: View {
                                     }
                                     Button {
                                         if let selection {
-                                            if isSelectedReviewed { sourceControl.reviewedPaths.remove(selection) } else {
+                                            if isSelectedReviewed {
+                                                sourceControl.reviewedPaths.remove(selection)
+                                            } else {
                                                 sourceControl.reviewedPaths.insert(selection)
                                             }
                                         }
                                     } label: {
                                         Label(
                                             isSelectedReviewed ? "Reviewed" : "Mark as Reviewed",
-                                            systemImage: isSelectedReviewed ? "checkmark.circle.fill" : "checkmark.circle"
+                                            systemImage: isSelectedReviewed
+                                                ? "checkmark.circle.fill" : "checkmark.circle"
                                         )
                                     }
                                     .help(isSelectedReviewed ? "Mark file as not reviewed" : "Mark file as reviewed")
-                                    if !entireTask {
-                                        Button(role: .destructive) {
-                                            prepareDiscard(all: false)
-                                        } label: {
-                                            Image(systemName: "trash")
-                                        }
-                                        .tint(.red)
-                                        .disabled(!canDiscard || rendered == nil).help(
-                                            "Discard local changes in this file"
-                                        )
-                                        .accessibilityLabel("Discard file changes")
+                                    Button {
+                                        navigateFile(by: -1)
+                                    } label: {
+                                        Image(systemName: "chevron.left")
                                     }
+                                    .disabled((selectedChangeIndex.map { $0 == 0 } ?? true) || busy)
+                                    .help("Previous File")
+                                    .accessibilityLabel("Previous File")
+                                    Button {
+                                        navigateFile(by: 1)
+                                    } label: {
+                                        Image(systemName: "chevron.right")
+                                    }
+                                    .disabled(
+                                        (selectedChangeIndex.map { $0 >= orderedChanges.count - 1 } ?? true) || busy
+                                    )
+                                    .help("Next File")
+                                    .accessibilityLabel("Next File")
                                 }.font(.system(size: 10)).padding(.horizontal, 14).frame(height: 38)
                                 Divider().opacity(0.3)
                             }
@@ -152,10 +161,6 @@ struct ChangesView: View {
                         "\(review.changes.count) \(review.changes.count == 1 ? "file" : "files") · \(entireTask ? "Since worktree creation" : "Uncommitted changes")"
                     )
                     .font(.caption).foregroundStyle(.secondary)
-                    if !entireTask && !review.changes.isEmpty {
-                        Button("Discard All…", role: .destructive) { prepareDiscard(all: true) }
-                            .tint(.red).disabled(!canDiscard)
-                    }
                 }
                 Spacer()
                 if let watchError { Text(watchError).foregroundStyle(.orange).lineLimit(2).help(watchError) }
@@ -163,25 +168,29 @@ struct ChangesView: View {
                     Button("Show Recovery Copy") { NSWorkspace.shared.activateFileViewerSelecting([backup]) }
                 }
                 if let review {
-                    Button("Reveal Folder") {
+                    Button {
                         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: review.root)])
+                    } label: {
+                        Label("Reveal in Finder", systemImage: "folder")
                     }
+                    .help("Reveal repository folder in Finder")
                 }
-                if let review, !review.changes.isEmpty {
-                    Button { navigateFile(by: -1) } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: "chevron.left").accessibilityHidden(true)
-                            Text("Previous File")
+                if let review, !entireTask, !review.changes.isEmpty {
+                    Menu {
+                        if selectedChange != nil {
+                            Button("Discard Selected File…", systemImage: "trash", role: .destructive) {
+                                prepareDiscard(all: false)
+                            }
+                            .disabled(!canDiscard || rendered == nil)
                         }
+                        Button("Discard All…", role: .destructive) { prepareDiscard(all: true) }
+                            .disabled(!canDiscard)
+                    } label: {
+                        Label("Discard…", systemImage: "trash")
                     }
-                    .disabled((selectedChangeIndex.map { $0 == 0 } ?? true) || busy)
-                    Button { navigateFile(by: 1) } label: {
-                        HStack(spacing: 5) {
-                            Text("Next File")
-                            Image(systemName: "chevron.right").accessibilityHidden(true)
-                        }
-                    }
-                    .disabled((selectedChangeIndex.map { $0 >= orderedChanges.count - 1 } ?? true) || busy)
+                    .tint(.red)
+                    .disabled(!canDiscard)
+                    .help("Discard local changes")
                 }
             }.buttonStyle(.borderless).font(.caption).padding(14).fixedSize(horizontal: false, vertical: true)
         }
@@ -250,24 +259,29 @@ struct ChangesView: View {
     }
 
     private func treeRows(_ nodes: [ReviewFileNode]) -> AnyView {
-        AnyView(ForEach(nodes) { node in
-            if let children = node.children {
-                DisclosureGroup(isExpanded: Binding(
-                    get: { expandedDirectories.contains(node.id) },
-                    set: { isExpanded in
-                        if isExpanded { expandedDirectories.insert(node.id) } else {
-                            expandedDirectories.remove(node.id)
-                        }
+        AnyView(
+            ForEach(nodes) { node in
+                if let children = node.children {
+                    DisclosureGroup(
+                        isExpanded: Binding(
+                            get: { expandedDirectories.contains(node.id) },
+                            set: { isExpanded in
+                                if isExpanded {
+                                    expandedDirectories.insert(node.id)
+                                } else {
+                                    expandedDirectories.remove(node.id)
+                                }
+                            }
+                        )
+                    ) {
+                        treeRows(children)
+                    } label: {
+                        treeLabel(node)
                     }
-                )) {
-                    treeRows(children)
-                } label: {
-                    treeLabel(node)
+                } else {
+                    treeLabel(node).tag(node.id)
                 }
-            } else {
-                treeLabel(node).tag(node.id)
-            }
-        })
+            })
     }
 
     private func treeLabel(_ node: ReviewFileNode) -> some View {
@@ -316,9 +330,10 @@ struct ChangesView: View {
             if review != value { review = value }
             error = nil; notRepository = false
             if !value.changes.contains(where: { $0.path == selection }) {
-                selection = sourceControl.selectedReviewPath.flatMap { path in
-                    value.changes.contains(where: { $0.path == path }) ? path : nil
-                } ?? value.changes.first?.path
+                selection =
+                    sourceControl.selectedReviewPath.flatMap { path in
+                        value.changes.contains(where: { $0.path == path }) ? path : nil
+                    } ?? value.changes.first?.path
             }
             expandSelectedPath()
         case .failure(let failure):

@@ -4,8 +4,9 @@ import Testing
 
 struct CommitMessageGeneratorTests {
     @Test func cleansOneLineSubjectsAndRejectsPromptEchoes() throws {
-        #expect(try CommitMessageGenerator.normalize("  **fix: preserve staged edits**\nExtra text", provider: .codex)
-            == "fix: preserve staged edits")
+        #expect(
+            try CommitMessageGenerator.normalize("  **fix: preserve staged edits**\nExtra text", provider: .codex)
+                == "fix: preserve staged edits")
         #expect(throws: GitFailure.self) {
             try CommitMessageGenerator.normalize(
                 "Describe the concrete code change shown in the staged diff", provider: .claude)

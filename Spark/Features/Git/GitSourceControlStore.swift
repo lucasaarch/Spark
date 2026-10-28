@@ -57,9 +57,58 @@ final class GitSourceControlStore: ObservableObject {
         try await perform(at: root) { try GitRepository.unstage(file.path, at: root) }
     }
 
+    func partialStage(for file: GitSourceFile) async throws -> GitPartialStage {
+        guard let root = repositoryPath else { throw GitFailure(message: "No Git repository is selected.") }
+        return try await Task.detached(priority: .userInitiated) {
+            try GitRepository.partialStage(at: root, path: file.path)
+        }.value
+    }
+
+    func stageHunks(_ hunks: [GitPatchHunk], expectedPatch: String, path: String) async throws {
+        guard let root = repositoryPath else { return }
+        try await perform(at: root) {
+            try GitRepository.stageHunks(hunks, expectedPatch: expectedPatch, path: path, at: root)
+        }
+    }
+
     func commit(message: String) async throws {
         guard let root = repositoryPath, let snapshot else { return }
         try await perform(at: root) { try GitRepository.commit(at: root, message: message, expected: snapshot) }
+    }
+
+    func stashChanges() async throws {
+        guard let root = repositoryPath else { return }
+        try await perform(at: root) { try GitRepository.stashChanges(at: root) }
+    }
+
+    func applyStash(_ stash: GitStash) async throws {
+        guard let root = repositoryPath else { return }
+        try await perform(at: root) { try GitRepository.popStash(stash.id, at: root) }
+    }
+
+    func dropStash(_ stash: GitStash) async throws {
+        guard let root = repositoryPath else { return }
+        try await perform(at: root) { try GitRepository.dropStash(stash.id, at: root) }
+    }
+
+    func fetch() async throws {
+        guard let root = repositoryPath else { return }
+        try await perform(at: root) { try GitRepository.fetch(at: root) }
+    }
+
+    func pull() async throws {
+        guard let root = repositoryPath else { return }
+        try await perform(at: root) { try GitRepository.pull(at: root) }
+    }
+
+    func push() async throws {
+        guard let root = repositoryPath else { return }
+        try await perform(at: root) { try GitRepository.push(at: root) }
+    }
+
+    func publishBranch(to remote: String) async throws {
+        guard let root = repositoryPath else { return }
+        try await perform(at: root) { try GitRepository.publishBranch(to: remote, at: root) }
     }
 
     private func perform(at path: String, operation: @escaping @Sendable () throws -> Void) async throws {

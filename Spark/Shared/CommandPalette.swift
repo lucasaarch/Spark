@@ -206,6 +206,14 @@ struct CommandPalette: View {
                 symbol: "doc.text.magnifyingglass", shortcut: "⇧⌘G", enabled: workspace.selected?.repository != nil,
                 run: { workspace.showReview() }),
             PaletteCommand(
+                id: "quick-open", title: "Quick Open…", detail: "Find a file in the focused Git repository",
+                symbol: "magnifyingglass", shortcut: "⌘P", enabled: workspace.selected?.repository != nil,
+                run: { workspace.showQuickOpen() }),
+            PaletteCommand(
+                id: "command-history", title: "Command History…", detail: "Search commands entered in this terminal",
+                symbol: "clock", shortcut: nil, enabled: workspace.selected != nil,
+                run: { workspace.commandHistorySession = workspace.selected }),
+            PaletteCommand(
                 id: "new-tab", title: "New Tab", detail: "Open a terminal in the current folder", symbol: "plus.square",
                 shortcut: "⌘T", enabled: true, run: { workspace.add() }),
             PaletteCommand(

@@ -11,12 +11,15 @@ final class SparkUITests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: folder) }
         func git(_ args: [String]) throws {
             let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            process.executableURL = URL(fileURLWithPath: "/Library/Developer/CommandLineTools/usr/bin/git")
             process.arguments = ["-C", project.path] + args
             process.standardOutput = FileHandle.nullDevice
-            process.standardError = FileHandle.nullDevice
-            try process.run(); process.waitUntilExit()
-            XCTAssertEqual(process.terminationStatus, 0)
+            let errors = Pipe()
+            process.standardError = errors
+            try process.run()
+            process.waitUntilExit()
+            let detail = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            XCTAssertEqual(process.terminationStatus, 0, "git \(args.joined(separator: " ")) failed: \(detail)")
         }
         try git(["init", "-b", "main"])
         try git(["config", "user.name", "Spark UI"])
@@ -36,15 +39,16 @@ final class SparkUITests: XCTestCase {
         app.launch()
         defer { app.terminate() }
         XCTAssertTrue(app.buttons["newTab"].waitForExistence(timeout: 10))
+        app.typeText("cd '\(project.path)'\n")
         app.typeText("printf 'UI_%s\\n' WORKFLOW_READY\n")
         let ready = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "value CONTAINS 'UI_WORKFLOW_READY'"), object: app.textViews["Terminal"])
         XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 5), .completed)
-        app.typeKey("a", modifierFlags: [.command, .shift])
-        XCTAssertTrue(app.staticTexts["Activity"].waitForExistence(timeout: 3))
         XCTAssertTrue(
             app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Worktree for'")).firstMatch.waitForExistence(
                 timeout: 10))
+        app.typeKey("a", modifierFlags: [.command, .shift])
+        XCTAssertTrue(app.staticTexts["Activity"].waitForExistence(timeout: 3))
         app.typeKey("n", modifierFlags: [.command, .shift])
         let branch = app.textFields["Worktree name"]
         XCTAssertTrue(branch.waitForExistence(timeout: 3))
@@ -90,7 +94,7 @@ final class SparkUITests: XCTestCase {
         let output = XCTNSPredicateExpectation(
             predicate: NSPredicate(format: "value CONTAINS 'SPARK_UI_PROOF'"), object: app.textViews["Terminal"])
         XCTAssertEqual(XCTWaiter.wait(for: [output], timeout: 5), .completed)
-        app.typeKey("t", modifierFlags: .command)
+        app.buttons["newTab"].click()
         XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Select '")).count, 2)
         app.typeKey("[", modifierFlags: [.command, .shift])
         app.typeKey("f", modifierFlags: [.command, .shift])
@@ -99,7 +103,7 @@ final class SparkUITests: XCTestCase {
         app.typeKey(",", modifierFlags: .command)
         XCTAssertTrue(app.buttons["Done"].waitForExistence(timeout: 3))
         app.buttons["Done"].click()
-        app.typeKey("w", modifierFlags: .command)
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Close '")).firstMatch.click()
         XCTAssertTrue(app.buttons["Cancel"].waitForExistence(timeout: 3))
         app.buttons["Cancel"].click()
         XCTAssertEqual(app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Select '")).count, 2)
@@ -108,11 +112,11 @@ final class SparkUITests: XCTestCase {
         XCTAssertTrue(
             app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Exited · 0'")).firstMatch.waitForExistence(
                 timeout: 5))
-        app.typeKey("w", modifierFlags: .command)
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Close '")).firstMatch.click()
         app.typeText("exit\n")
         XCTAssertTrue(
             app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'Exited · 0'")).firstMatch.waitForExistence(
                 timeout: 5))
-        app.typeKey("w", modifierFlags: .command)
+        app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Close '")).firstMatch.click()
     }
 }

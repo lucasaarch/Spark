@@ -30,6 +30,13 @@ struct PaneGitControls: View {
                     WorktreePopover(session: session, workspace: workspace, close: { showsWorktree = false })
                 }
             }
+            Button {
+                workspace.commandHistorySession = session
+            } label: {
+                Image(systemName: "clock.arrow.circlepath").frame(width: 23, height: 24)
+            }
+            .buttonStyle(.plain).help("Recent commands in this terminal")
+            .accessibilityLabel("Command history for \(session.displayTitle)")
         }
     }
 }
@@ -60,10 +67,6 @@ private struct WorktreePopover: View {
                     Spacer()
                     if busy { ProgressView().controlSize(.small) }
                 }
-                Text(repo.isWorktree ? "Linked worktree" : "Main working tree").font(.caption).foregroundStyle(
-                    .secondary)
-                Text(repo.root).font(.system(size: 11)).foregroundStyle(.secondary)
-                    .lineLimit(2).truncationMode(.middle).help(repo.root).textSelection(.enabled)
                 Divider()
                 Button {
                     close()
@@ -78,6 +81,21 @@ private struct WorktreePopover: View {
                             icon: "arrow.triangle.merge")
                     }.disabled(busy)
                 }
+                Button {
+                    workspace.historySession = session; close()
+                } label: {
+                    actionLabel("Commit History…", icon: "clock.arrow.circlepath")
+                }.disabled(busy)
+                Button {
+                    workspace.comparisonSession = session; close()
+                } label: {
+                    actionLabel("Compare Branches…", icon: "arrow.left.arrow.right")
+                }.disabled(busy)
+                Button {
+                    workspace.worktreeManagerSession = session; close()
+                } label: {
+                    actionLabel("Manage Worktrees…", icon: "list.bullet.indent")
+                }.disabled(busy)
                 Button {
                     NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: repo.root)])
                 } label: {
@@ -143,6 +161,7 @@ private struct WorktreePopover: View {
             await session.refreshRepository()
         }
     }
+
 }
 
 struct WorktreeView: View {

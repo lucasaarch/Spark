@@ -231,6 +231,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     @objc private func sourceControl(_ sender: Any?) { workspace?.showsSourceControl.toggle() }
     @objc private func newWorktree(_ sender: Any?) { workspace?.showWorktreeCreator() }
     @objc private func reviewChanges(_ sender: Any?) { workspace?.showReview() }
+    @objc private func quickOpen(_ sender: Any?) { workspace?.showQuickOpen() }
     @objc func updates(_ sender: Any?) { updater.checkForUpdates(sender) }
     var canCheckForUpdates: Bool { updater.updater.canCheckForUpdates }
     @objc private func nextTab(_ sender: Any?) { workspace?.selectNext(1) }
@@ -248,7 +249,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
     }
 
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        if [#selector(newWorktree(_:)), #selector(reviewChanges(_:))].contains(menuItem.action) {
+        if [#selector(newWorktree(_:)), #selector(reviewChanges(_:)), #selector(quickOpen(_:))].contains(
+            menuItem.action) {
             return workspace?.selected?.repository != nil
         }
         if [#selector(splitRight(_:)), #selector(splitBelow(_:))].contains(menuItem.action) {
@@ -302,6 +304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuItemValidation {
         item(shell, "New Window", #selector(newWindow(_:)), "n", target: self)
         item(shell, "New Tab", #selector(newTab(_:)), "t", target: self)
         item(shell, "Command Palette…", #selector(commandPalette(_:)), "k", target: self)
+        item(shell, "Quick Open…", #selector(quickOpen(_:)), "p", target: self)
         item(shell, "Open Folder…", #selector(openFolder(_:)), "o", target: self)
         item(shell, "New Worktree…", #selector(newWorktree(_:)), "n", [.command, .shift], target: self)
         item(shell, "Review Changes…", #selector(reviewChanges(_:)), "g", [.command, .shift], target: self)

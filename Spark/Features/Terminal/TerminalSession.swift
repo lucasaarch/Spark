@@ -2,6 +2,12 @@ import AppKit
 import Combine
 import SwiftTerm
 
+struct TerminalCommand: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let command: String
+    let timestamp: Date
+}
+
 /// The session owns its PTY and view. SwiftUI may detach the view without ending the shell.
 @MainActor
 final class TerminalSession: ObservableObject, Identifiable, LocalProcessTerminalViewDelegate {
@@ -20,6 +26,7 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
     @Published private(set) var metrics: AgentMetrics?
     @Published private(set) var hasMetricsIntegration = false
     @Published var conversation: AgentConversation?
+    @Published private(set) var commandHistory: [TerminalCommand] = []
     let worktree: WorktreeRecord?
     private let launch: AgentLaunch?
     private(set) var hasPendingLaunch: Bool
@@ -63,7 +70,8 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
         terminal = SparkTerminalView(frame: NSRect(x: 0, y: 0, width: 900, height: 560), options: options)
         terminal.processDelegate = self
         integrationObservation = terminal.observeOscEvents { [weak self] event in
-            guard [0, 2, 9001].contains(event.code), event.payload.count <= 2048 else { return }
+            let payloadLimit = event.code == 9001 ? 24_000 : 2048
+            guard [0, 2, 9001].contains(event.code), event.payload.count <= payloadLimit else { return }
             let message = String(decoding: event.payload, as: UTF8.self)
             DispatchQueue.main.async { [weak self] in
                 if event.code == 9001 { self?.receiveIntegration(message) } else { self?.receiveMetricsTitle(message) }
@@ -252,6 +260,14 @@ final class TerminalSession: ObservableObject, Identifiable, LocalProcessTermina
 
     private func receiveIntegration(_ message: String) {
         guard terminal.process.running else { return }
+        if message.hasPrefix("SparkCommand:"),
+            let data = Data(base64Encoded: String(message.dropFirst("SparkCommand:".count))), data.count <= 16_384,
+            let command = String(data: data, encoding: .utf8),
+            !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            commandHistory.append(TerminalCommand(id: UUID(), command: command, timestamp: Date()))
+            if commandHistory.count > 500 { commandHistory.removeFirst(commandHistory.count - 500) }
+            return
+        }
         if message == "SparkAgent:end" { clearAgent(); return }
         if message == "SparkAgent:launch-failed" {
             hasPendingLaunch = false

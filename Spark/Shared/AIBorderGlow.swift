@@ -9,8 +9,11 @@ struct AIBorderGlow: View {
     var body: some View {
         TimelineView(.animation(paused: !isActive || reduceMotion)) { timeline in
             let colors: [Color] = [.teal, .blue, .purple, .pink, .orange, .teal]
-            let phase = reduceMotion ? 0 : timeline.date.timeIntervalSinceReferenceDate
-                .truncatingRemainder(dividingBy: 18) / 18 * 360
+            let phase =
+                reduceMotion
+                ? 0
+                : timeline.date.timeIntervalSinceReferenceDate
+                    .truncatingRemainder(dividingBy: 18) / 18 * 360
             let gradient = AngularGradient(
                 colors: colors, center: .center, angle: .degrees(phase))
             ZStack {

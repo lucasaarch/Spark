@@ -88,8 +88,17 @@ final class AgentShellIntegration {
                 [[ -t 1 ]] && printf '\\033[?9;1000;1002;1003;1004;1005;1006;1015;1016l\\033[<999u'
                 return 0
               }
+              function _spark_capture_command {
+                local spark_command="$1"
+                [[ -n "$spark_command" && ${#spark_command} -le 4096 ]] || return 0
+                local spark_payload
+                spark_payload=$(printf '%s' "$spark_command" | /usr/bin/base64 | /usr/bin/tr -d '\\n')
+                printf '\\033]9001;SparkCommand:%s\\007' "$spark_payload"
+              }
               typeset -ga precmd_functions
               precmd_functions=(_spark_restore_input ${precmd_functions:#_spark_restore_input})
+              typeset -ga preexec_functions
+              preexec_functions=(_spark_capture_command ${preexec_functions:#_spark_capture_command})
               path=("$SPARK_AGENT_BIN" "${path[@]}")
               export PATH
               rehash
