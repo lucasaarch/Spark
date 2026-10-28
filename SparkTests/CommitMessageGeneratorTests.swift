@@ -17,8 +17,13 @@ struct CommitMessageGeneratorTests {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let node = directory.appending(path: "node")
-        try "#!/bin/sh\ncat >/dev/null\nprintf 'fix: stage only intended files\\n'\n"
-            .write(to: node, atomically: true, encoding: .utf8)
+        let nodeScript = #"""
+            #!/bin/sh
+            IFS= read -r request
+            [ "$request" = 'untrusted staged diff' ] || exit 11
+            printf 'fix: stage only intended files\n'
+            """#
+        try nodeScript.write(to: node, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: node.path)
         let cli = directory.appending(path: "mock-codex")
         try "#!/usr/bin/env node\n".write(to: cli, atomically: true, encoding: .utf8)
