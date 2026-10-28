@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 import Darwin
 
 struct GitFailure: LocalizedError {
@@ -18,6 +19,10 @@ struct GitChange: Identifiable, Hashable, Sendable {
     let path: String
     let status: String
     var untracked: Bool { status == "?" }
+    var statusLetter: String {
+        let code = status.first.map(String.init) ?? "M"
+        return code == "?" || code == "U" ? "U" : code
+    }
 }
 
 struct GitReview: Equatable, Sendable {
@@ -25,6 +30,34 @@ struct GitReview: Equatable, Sendable {
     let base: String
     let branch: String
     let changes: [GitChange]
+}
+
+struct GitSourceFile: Identifiable, Equatable, Sendable {
+    let path: String
+    let isStaged: Bool
+    let isUnstaged: Bool
+    let isUntracked: Bool
+    let isConflicted: Bool
+    let indexStatus: String
+    let worktreeStatus: String
+    var id: String { path }
+
+    func statusLetter(isStaged: Bool) -> String {
+        if isConflicted { return "U" }
+        let status = isStaged ? indexStatus : worktreeStatus
+        if isUntracked || status == "?" { return "U" }
+        return status == " " ? "M" : status
+    }
+}
+
+struct GitSourceSnapshot: Equatable, Sendable {
+    let root: String
+    let branch: String
+    let head: String?
+    let indexFingerprint: String
+    let files: [GitSourceFile]
+    var stagedFiles: [GitSourceFile] { files.filter(\.isStaged) }
+    var unstagedFiles: [GitSourceFile] { files.filter(\.isUnstaged) }
 }
 
 struct GitContext: Equatable, Sendable {
@@ -195,6 +228,89 @@ enum GitRepository {
             !changes.contains { $0.path == candidate.path }
         }
         return GitReview(root: root, base: base, branch: branch, changes: changes.sorted { $0.path < $1.path })
+    }
+
+    static func sourceControl(at directory: String) throws -> GitSourceSnapshot {
+        let root = try root(at: directory)
+        let branch =
+            (try? run(at: root, ["symbolic-ref", "--short", "HEAD"]).trimmingCharacters(in: .newlines))
+            ?? "Detached HEAD"
+        let head = try? run(at: root, ["rev-parse", "--verify", "HEAD^{commit}"]).trimmingCharacters(in: .newlines)
+        let status = try run(at: root, ["status", "--porcelain=v1", "-z", "--untracked-files=all", "--no-renames"])
+        let conflicts: Set<String> = ["DD", "AU", "UD", "UA", "DU", "AA", "UU"]
+        let files = status.split(separator: "\0", omittingEmptySubsequences: true).compactMap { entry -> GitSourceFile? in
+            let fields = Array(entry)
+            guard fields.count >= 4, fields[2] == " " else { return nil }
+            let index = fields[0], worktree = fields[1]
+            let path = String(fields.dropFirst(3))
+            let isUntracked = index == "?" && worktree == "?"
+            return GitSourceFile(
+                path: path,
+                isStaged: index != " " && index != "?",
+                isUnstaged: worktree != " " || isUntracked,
+                isUntracked: isUntracked,
+                isConflicted: conflicts.contains(String([index, worktree])),
+                indexStatus: String(index), worktreeStatus: String(worktree))
+        }.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+        let index = try run(at: root, ["ls-files", "--stage", "-z"])
+        return GitSourceSnapshot(
+            root: root, branch: branch, head: head,
+            indexFingerprint: SHA256.hash(data: Data(index.utf8)).map { String(format: "%02x", $0) }.joined(),
+            files: files)
+    }
+
+    static func stage(_ path: String, at directory: String) throws {
+        mutationLock.lock(); defer { mutationLock.unlock() }
+        let root = try root(at: directory)
+        try validateGitPath(path)
+        _ = try run(at: root, ["add", "--", path])
+    }
+
+    static func stageAll(at directory: String) throws {
+        mutationLock.lock(); defer { mutationLock.unlock() }
+        let root = try root(at: directory)
+        _ = try run(at: root, ["add", "--all", "--", "."])
+    }
+
+    static func unstage(_ path: String, at directory: String) throws {
+        mutationLock.lock(); defer { mutationLock.unlock() }
+        let root = try root(at: directory)
+        try validateGitPath(path)
+        if (try? run(at: root, ["rev-parse", "--verify", "HEAD^{commit}"])) != nil {
+            _ = try run(at: root, ["restore", "--staged", "--", path])
+        } else {
+            _ = try run(at: root, ["rm", "--cached", "--ignore-unmatch", "--force", "--", path])
+        }
+    }
+
+    static func stagedDiff(at directory: String) throws -> String {
+        let root = try root(at: directory)
+        return try run(
+            at: root,
+            ["diff", "--cached", "--no-ext-diff", "--no-textconv", "--no-renames", "--unified=2", "--"])
+    }
+
+    static func commit(at directory: String, message: String, expected: GitSourceSnapshot) throws {
+        mutationLock.lock(); defer { mutationLock.unlock() }
+        let root = try root(at: directory)
+        let message = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !message.isEmpty else { throw GitFailure(message: "Enter a commit message first.") }
+        guard expected.root == root else { throw GitFailure(message: "The repository changed. Refresh Source Control.") }
+        try requireNoOperation(root)
+        let current = try sourceControl(at: root)
+        guard current.head == expected.head, current.indexFingerprint == expected.indexFingerprint else {
+            throw GitFailure(message: "The staged changes changed. Review them and try the commit again.")
+        }
+        guard !current.stagedFiles.isEmpty else { throw GitFailure(message: "Stage at least one file to commit.") }
+        guard !current.files.contains(where: \.isConflicted) else {
+            throw GitFailure(message: "Resolve all merge conflicts before committing.")
+        }
+        _ = try run(at: root, ["commit", "-m", message], timeout: 120)
+    }
+
+    private static func validateGitPath(_ path: String) throws {
+        guard !path.isEmpty, !path.hasPrefix("/"), !path.split(separator: "/").contains(".."), !path.contains("\0")
+        else { throw GitFailure(message: "Invalid file path from Git status.") }
     }
 
     static func diff(_ change: GitChange, review: GitReview, binary: Bool = false) throws -> String {

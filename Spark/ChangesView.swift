@@ -2,10 +2,12 @@ import SwiftUI
 
 struct ChangesView: View {
     @ObservedObject var session: TerminalSession
+    @ObservedObject var sourceControl: GitSourceControlStore
     @Environment(\.dismiss) private var dismiss
     private let origin: String
     @State private var review: GitReview?
     @State private var selection: String?
+    @State private var expandedDirectories: Set<String> = []
     @State private var rendered: RenderedReview?
     @State private var displayedPatch = ""
     @State private var renderedKey = ""
@@ -23,12 +25,21 @@ struct ChangesView: View {
     @State private var confirmsDiscard = false
     @State private var backup: URL?
 
-    init(session: TerminalSession) {
+    init(session: TerminalSession, sourceControl: GitSourceControlStore) {
         self.session = session
+        self.sourceControl = sourceControl
         origin = session.repository?.root ?? session.directory.path
     }
 
     private var selectedChange: GitChange? { review?.changes.first { $0.path == selection } }
+    private var orderedChanges: [GitChange] {
+        func flatten(_ nodes: [ReviewFileNode]) -> [GitChange] {
+            nodes.flatMap { node in node.change.map { [$0] } ?? flatten(node.children ?? []) }
+        }
+        return flatten(ReviewFileNode.tree(review?.changes ?? []))
+    }
+    private var selectedChangeIndex: Int? { orderedChanges.firstIndex { $0.path == selection } }
+    private var isSelectedReviewed: Bool { selection.map(sourceControl.reviewedPaths.contains) ?? false }
     private var canDiscard: Bool {
         !entireTask && !busy && !loading && !loadingDiff && session.agent?.state != .working
     }
@@ -87,12 +98,26 @@ struct ChangesView: View {
                                         Text("\(rendered.document.additions) added").foregroundStyle(.green)
                                         Text("\(rendered.document.deletions) removed").foregroundStyle(.red)
                                     }
+                                    Button {
+                                        if let selection {
+                                            if isSelectedReviewed { sourceControl.reviewedPaths.remove(selection) } else {
+                                                sourceControl.reviewedPaths.insert(selection)
+                                            }
+                                        }
+                                    } label: {
+                                        Label(
+                                            isSelectedReviewed ? "Reviewed" : "Mark as Reviewed",
+                                            systemImage: isSelectedReviewed ? "checkmark.circle.fill" : "checkmark.circle"
+                                        )
+                                    }
+                                    .help(isSelectedReviewed ? "Mark file as not reviewed" : "Mark file as reviewed")
                                     if !entireTask {
-                                        Button {
+                                        Button(role: .destructive) {
                                             prepareDiscard(all: false)
                                         } label: {
-                                            Image(systemName: "arrow.uturn.backward")
+                                            Image(systemName: "trash")
                                         }
+                                        .tint(.red)
                                         .disabled(!canDiscard || rendered == nil).help(
                                             "Discard local changes in this file"
                                         )
@@ -128,7 +153,8 @@ struct ChangesView: View {
                     )
                     .font(.caption).foregroundStyle(.secondary)
                     if !entireTask && !review.changes.isEmpty {
-                        Button("Discard All…") { prepareDiscard(all: true) }.disabled(!canDiscard)
+                        Button("Discard All…", role: .destructive) { prepareDiscard(all: true) }
+                            .tint(.red).disabled(!canDiscard)
                     }
                 }
                 Spacer()
@@ -141,11 +167,33 @@ struct ChangesView: View {
                         NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: review.root)])
                     }
                 }
+                if let review, !review.changes.isEmpty {
+                    Button { navigateFile(by: -1) } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "chevron.left").accessibilityHidden(true)
+                            Text("Previous File")
+                        }
+                    }
+                    .disabled((selectedChangeIndex.map { $0 == 0 } ?? true) || busy)
+                    Button { navigateFile(by: 1) } label: {
+                        HStack(spacing: 5) {
+                            Text("Next File")
+                            Image(systemName: "chevron.right").accessibilityHidden(true)
+                        }
+                    }
+                    .disabled((selectedChangeIndex.map { $0 >= orderedChanges.count - 1 } ?? true) || busy)
+                }
             }.buttonStyle(.borderless).font(.caption).padding(14).fixedSize(horizontal: false, vertical: true)
         }
         .frame(width: 1000, height: 660)
         .background(Color(red: 0.075, green: 0.083, blue: 0.10))
         .interactiveDismissDisabled(busy)
+        .onAppear { sourceControl.selectRepository(origin) }
+        .onChange(of: selection) {
+            expandSelectedPath()
+            sourceControl.selectedReviewPath = selection
+        }
+        .onChange(of: entireTask) { sourceControl.reviewedPaths.removeAll() }
         .alert("Discard Local Changes?", isPresented: $confirmsDiscard) {
             Button("Cancel", role: .cancel) { discardPlan = nil }
             Button("Discard", role: .destructive, action: discard)
@@ -193,23 +241,67 @@ struct ChangesView: View {
 
     private var fileTree: some View {
         List(selection: $selection) {
-            OutlineGroup(ReviewFileNode.tree(review?.changes ?? []), children: \.children) { node in
-                HStack(spacing: 8) {
-                    ReviewFileIcon(path: node.id, isFolder: node.children != nil)
-                    Text(node.name).font(.system(size: 12)).lineLimit(1)
-                    Spacer(minLength: 4)
-                    if let change = node.change {
-                        Circle().fill(
-                            change.status == "D"
-                                ? Color.red : change.status == "A" || change.untracked ? .green : .orange
-                        ).frame(width: 5, height: 5)
-                    }
-                }.padding(.vertical, 4).tag(node.id).help(node.id)
-            }
+            treeRows(ReviewFileNode.tree(review?.changes ?? []))
         }
         .listStyle(.sidebar).scrollContentBackground(.hidden).frame(width: 250)
+        .tint(Color(red: 1, green: 0.73, blue: 0.42).opacity(0.32))
         .background(.white.opacity(0.02))
         .disabled(busy)
+    }
+
+    private func treeRows(_ nodes: [ReviewFileNode]) -> AnyView {
+        AnyView(ForEach(nodes) { node in
+            if let children = node.children {
+                DisclosureGroup(isExpanded: Binding(
+                    get: { expandedDirectories.contains(node.id) },
+                    set: { isExpanded in
+                        if isExpanded { expandedDirectories.insert(node.id) } else {
+                            expandedDirectories.remove(node.id)
+                        }
+                    }
+                )) {
+                    treeRows(children)
+                } label: {
+                    treeLabel(node)
+                }
+            } else {
+                treeLabel(node).tag(node.id)
+            }
+        })
+    }
+
+    private func treeLabel(_ node: ReviewFileNode) -> some View {
+        HStack(spacing: 8) {
+            ReviewFileIcon(path: node.id, isFolder: node.children != nil)
+            Text(node.name).font(.system(size: 12)).lineLimit(1)
+            Spacer(minLength: 4)
+            if let change = node.change {
+                HStack(spacing: 5) {
+                    if sourceControl.reviewedPaths.contains(node.id) {
+                        Image(systemName: "checkmark.circle.fill").font(.system(size: 16)).foregroundStyle(.green)
+                            .accessibilityLabel("Reviewed")
+                    }
+                    GitStatusBadge(status: change.statusLetter)
+                }
+            }
+        }
+        .padding(.vertical, 4).contentShape(Rectangle()).help(node.id)
+    }
+
+    private func expandSelectedPath() {
+        guard let selection else { return }
+        var prefix = ""
+        for component in selection.split(separator: "/").dropLast() {
+            prefix += (prefix.isEmpty ? "" : "/") + String(component)
+            expandedDirectories.insert(prefix)
+        }
+    }
+
+    private func navigateFile(by offset: Int) {
+        guard let index = selectedChangeIndex else { return }
+        let target = index + offset
+        guard orderedChanges.indices.contains(target) else { return }
+        selection = orderedChanges[target].path
     }
 
     private func reload() async {
@@ -223,7 +315,12 @@ struct ChangesView: View {
         case .success(let value):
             if review != value { review = value }
             error = nil; notRepository = false
-            if !value.changes.contains(where: { $0.path == selection }) { selection = value.changes.first?.path }
+            if !value.changes.contains(where: { $0.path == selection }) {
+                selection = sourceControl.selectedReviewPath.flatMap { path in
+                    value.changes.contains(where: { $0.path == path }) ? path : nil
+                } ?? value.changes.first?.path
+            }
+            expandSelectedPath()
         case .failure(let failure):
             error = failure.localizedDescription; review = nil
             notRepository = (failure as? GitFailure)?.isNotRepository == true

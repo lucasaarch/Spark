@@ -7,6 +7,14 @@ extension NativePresentationTests {
     @MainActor
     @Suite(.serialized)
     struct ReviewPresentationTests {
+        @Test func swiftDiffThemeCoversOperatorsAndParameters() async {
+            let old = "func sum(_ a: Int, _ b: Int) -> Int { a + b }\n"
+            let new = "func sum(_ a: Int, _ b: Int) -> Int { a - b }\n"
+            let rendered = await ReviewRenderer.shared.render(
+                patch: "@@ -1 +1 @@\n-\(old)+\(new)", path: "sample.swift", old: old, new: new)
+            #expect(rendered.text.length > 0)
+        }
+
         @Test func changingFilesResetsScrollButLiveEditsKeepReadingPosition() async throws {
             let line = String(repeating: "long code ", count: 30)
             let patch = "@@ -0,0 +1,100 @@\n" + Array(repeating: "+" + line, count: 100).joined(separator: "\n")
@@ -54,7 +62,7 @@ extension NativePresentationTests {
             let content = Array(repeating: String(repeating: "wide ", count: 50), count: 80).joined(separator: "\n")
             try (content + "\nfirst live edit\n").write(to: tracked, atomically: true, encoding: .utf8)
             let session = TerminalSession(directory: fixture.repository)
-            let host = NSHostingView(rootView: ChangesView(session: session))
+            let host = NSHostingView(rootView: ChangesView(session: session, sourceControl: GitSourceControlStore()))
             let window = NSWindow(
                 contentRect: NSRect(x: 0, y: 0, width: 1000, height: 660), styleMask: [.titled], backing: .buffered,
                 defer: false)

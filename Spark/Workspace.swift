@@ -65,7 +65,15 @@ final class Workspace: ObservableObject {
     @Published var selectedID: UUID? { didSet { changed() } }
     @Published var showsSettings = false
     @Published var showsCommandPalette = false
-    @Published var showsActivity = false
+    @Published var sidePanel: WorkspaceSidePanel? { didSet { changed() } }
+    var showsActivity: Bool {
+        get { sidePanel == .activity }
+        set { sidePanel = newValue ? .activity : nil }
+    }
+    var showsSourceControl: Bool {
+        get { sidePanel == .sourceControl }
+        set { sidePanel = newValue ? .sourceControl : nil }
+    }
     @Published var worktreeSession: TerminalSession?
     @Published var reviewSession: TerminalSession?
     @Published var actionError: String?
@@ -86,6 +94,7 @@ final class Workspace: ObservableObject {
         guard let snapshot, snapshot.isValid else { return }
         tabs = snapshot.tabs
         selectedID = snapshot.selectedID ?? tabs.first?.activePaneID
+        sidePanel = snapshot.sidePanel
         focusMode = snapshot.focusMode
         lastWindowFrame = snapshot.windowFrame
         conversations = snapshot.conversations ?? []
@@ -202,7 +211,7 @@ final class Workspace: ObservableObject {
             windowFrame: window.flatMap {
                 $0.styleMask.contains(.fullScreen) ? lastWindowFrame : NSStringFromRect($0.frame)
             } ?? lastWindowFrame,
-            conversations: conversations)
+            conversations: conversations, sidePanel: sidePanel)
     }
 
     @discardableResult
@@ -409,6 +418,13 @@ final class Workspace: ObservableObject {
         session.customTitle = conversation.title
         changed()
     }
+
+    func deleteConversation(_ conversation: AgentConversation) {
+        let previousCount = conversations.count
+        conversations.removeAll { $0.id == conversation.id && $0.provider == conversation.provider }
+        if conversations.count != previousCount { changed() }
+    }
+
     private func changed() { if !stopping { onChange?() } }
 
     static func confirmClose() -> Bool {

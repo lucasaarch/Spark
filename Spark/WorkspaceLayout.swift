@@ -1,5 +1,10 @@
 import Foundation
 
+enum WorkspaceSidePanel: String, Codable, Equatable {
+    case activity
+    case sourceControl
+}
+
 enum SplitAxis: String, Codable { case horizontal, vertical }
 
 enum PaneDropZone: Equatable {
@@ -223,6 +228,7 @@ struct WorkspaceSnapshot: Identifiable, Codable, Equatable {
     var focusMode: Bool
     var windowFrame: String?
     var conversations: [AgentConversation]?
+    var sidePanel: WorkspaceSidePanel?
 
     var isValid: Bool {
         guard name.count <= 160, tabs.count <= 64, sessions.count <= 128,
