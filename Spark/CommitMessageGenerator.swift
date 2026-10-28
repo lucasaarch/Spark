@@ -128,9 +128,11 @@ enum CommitMessageGenerator {
         defer { if process.isRunning { process.terminate() } }
         let stdoutTask = Task.detached(priority: .utility) { read(output.fileHandleForReading, limit: 32_000) }
         let stderrTask = Task.detached(priority: .utility) { read(errorOutput.fileHandleForReading, limit: 8_000) }
-        let writer = Task.detached(priority: .utility) {
-            defer { try? input.fileHandleForWriting.close() }
+        do {
             try input.fileHandleForWriting.write(contentsOf: Data(request.utf8))
+            try input.fileHandleForWriting.close()
+        } catch {
+            throw GitFailure(message: "Could not send the staged changes to \(provider.title). \(error.localizedDescription)")
         }
         let deadline = Date().addingTimeInterval(90)
         while process.isRunning && Date() < deadline {
@@ -142,7 +144,6 @@ enum CommitMessageGenerator {
             process.waitUntilExit()
             throw GitFailure(message: "\(provider.title) took too long to generate a commit subject.")
         }
-        try await writer.value
         let stdout = String(decoding: await stdoutTask.value, as: UTF8.self)
         let stderr = String(decoding: await stderrTask.value, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
         guard process.terminationStatus == 0 else {
