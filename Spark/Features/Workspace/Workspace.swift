@@ -5,13 +5,23 @@ import UniformTypeIdentifiers
 @MainActor
 final class PaneDragState: ObservableObject {
     static let contentType = UTType(exportedAs: "com.lucasarch.spark-pane")
+    static let tabContentType = UTType(exportedAs: "com.lucasarch.spark-tab")
 
     @Published private(set) var sourceID: UUID?
+    @Published private(set) var sourceTabID: UUID?
     @Published private(set) var preview: PaneDropPreview?
     @Published private(set) var tabTargetID: UUID?
 
     func begin(_ id: UUID) {
         sourceID = id
+        sourceTabID = nil
+        preview = nil
+        tabTargetID = nil
+    }
+
+    func beginTab(_ id: UUID) {
+        sourceID = nil
+        sourceTabID = id
         preview = nil
         tabTargetID = nil
     }
@@ -39,6 +49,7 @@ final class PaneDragState: ObservableObject {
 
     func clear() {
         sourceID = nil
+        sourceTabID = nil
         preview = nil
         tabTargetID = nil
     }
@@ -285,6 +296,25 @@ final class Workspace: ObservableObject {
 
     func selectTab(_ tab: WorkspaceTab) {
         if let session = sessions.first(where: { $0.id == tab.activePaneID }) { select(session) }
+    }
+
+    func canReorderTab(_ sourceID: UUID, onto targetID: UUID) -> Bool {
+        sourceID != targetID && tabs.contains { $0.id == sourceID } && tabs.contains { $0.id == targetID }
+    }
+
+    @discardableResult
+    func reorderTab(_ sourceID: UUID, relativeTo targetID: UUID, after: Bool) -> Bool {
+        guard canReorderTab(sourceID, onto: targetID),
+            let sourceIndex = tabs.firstIndex(where: { $0.id == sourceID }),
+            let targetIndex = tabs.firstIndex(where: { $0.id == targetID })
+        else { return false }
+
+        let source = tabs.remove(at: sourceIndex)
+        let adjustedTargetIndex = targetIndex - (sourceIndex < targetIndex ? 1 : 0)
+        tabs.insert(source, at: adjustedTargetIndex + (after ? 1 : 0))
+        paneDrag.clear()
+        changed()
+        return true
     }
 
     func selectNext(_ offset: Int) {

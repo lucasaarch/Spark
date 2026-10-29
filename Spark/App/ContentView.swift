@@ -139,12 +139,13 @@ private struct SessionTab: View {
     @ObservedObject var paneDrag: PaneDragState
     @State private var renaming = false
     @State private var newTitle = ""
+    @State private var tabWidth: CGFloat = 0
     let select: () -> Void
     let close: () -> Void
 
     var body: some View {
         tabChrome
-            .help(sessionHelp)
+            .help("Drag to reorder tabs · \(sessionHelp)")
             .contextMenu {
                 Button("Rename Active Pane…") {
                     newTitle = session.customTitle ?? session.displayTitle
@@ -204,8 +205,31 @@ private struct SessionTab: View {
         )
         .overlay { AIBorderGlow(isActive: session.agent?.state == .working, cornerRadius: 9) }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.14), value: paneDrag.tabTargetID)
-        .onDrop(of: [PaneDragState.contentType], delegate: TabDropDelegate(
-            tabID: tabID, workspace: workspace, paneDrag: paneDrag))
+        .background {
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear { tabWidth = geometry.size.width }
+                    .onChange(of: geometry.size.width) { _, width in tabWidth = width }
+            }
+        }
+        .onDrop(of: [PaneDragState.contentType, PaneDragState.tabContentType], delegate: WorkspaceTabDropDelegate(
+            tabID: tabID, tabWidth: tabWidth, workspace: workspace, paneDrag: paneDrag))
+        .onDrag {
+            paneDrag.beginTab(tabID)
+            let provider = NSItemProvider()
+            provider.registerDataRepresentation(
+                forTypeIdentifier: PaneDragState.tabContentType.identifier, visibility: .ownProcess
+            ) { completion in
+                completion(Data(tabID.uuidString.utf8), nil)
+                return nil
+            }
+            return provider
+        } preview: {
+            Label(session.displayTitle, systemImage: "arrow.left.and.right")
+                .font(.system(size: 12, weight: .medium))
+                .padding(10)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        }
     }
 
     private var sessionHelp: String {
@@ -216,40 +240,6 @@ private struct SessionTab: View {
     private var selectionLabel: String {
         guard let agent = session.agent else { return "Select \(session.displayTitle)" }
         return "Select \(session.displayTitle), \(agent.provider.name), \(agent.label)"
-    }
-}
-
-private struct TabDropDelegate: DropDelegate {
-    let tabID: UUID
-    let workspace: Workspace
-    let paneDrag: PaneDragState
-
-    func validateDrop(info: DropInfo) -> Bool {
-        guard info.hasItemsConforming(to: [PaneDragState.contentType]),
-            let sourceID = paneDrag.sourceID
-        else { return false }
-        return workspace.canMovePane(sourceID, toTab: tabID)
-    }
-
-    func dropEntered(info: DropInfo) {
-        guard validateDrop(info: info) else { return }
-        paneDrag.showTabTarget(tabID)
-    }
-
-    func dropUpdated(info: DropInfo) -> DropProposal? {
-        guard validateDrop(info: info) else {
-            paneDrag.clearTabTarget(tabID)
-            return DropProposal(operation: .cancel)
-        }
-        paneDrag.showTabTarget(tabID)
-        return DropProposal(operation: .move)
-    }
-
-    func dropExited(info: DropInfo) { paneDrag.clearTabTarget(tabID) }
-
-    func performDrop(info: DropInfo) -> Bool {
-        guard validateDrop(info: info), let sourceID = paneDrag.sourceID else { return false }
-        return workspace.movePane(sourceID, toTab: tabID)
     }
 }
 
