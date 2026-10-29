@@ -215,15 +215,7 @@ private struct SessionTab: View {
         .onDrop(of: [PaneDragState.contentType, PaneDragState.tabContentType], delegate: WorkspaceTabDropDelegate(
             tabID: tabID, tabWidth: tabWidth, workspace: workspace, paneDrag: paneDrag))
         .onDrag {
-            paneDrag.beginTab(tabID)
-            let provider = NSItemProvider()
-            provider.registerDataRepresentation(
-                forTypeIdentifier: PaneDragState.tabContentType.identifier, visibility: .ownProcess
-            ) { completion in
-                completion(Data(tabID.uuidString.utf8), nil)
-                return nil
-            }
-            return provider
+            makeTabDragProvider()
         } preview: {
             Label(session.displayTitle, systemImage: "arrow.left.and.right")
                 .font(.system(size: 12, weight: .medium))
@@ -240,6 +232,18 @@ private struct SessionTab: View {
     private var selectionLabel: String {
         guard let agent = session.agent else { return "Select \(session.displayTitle)" }
         return "Select \(session.displayTitle), \(agent.provider.name), \(agent.label)"
+    }
+
+    private func makeTabDragProvider() -> NSItemProvider {
+        paneDrag.beginTab(tabID)
+        let provider = NSItemProvider()
+        let typeIdentifier = PaneDragState.tabContentType.identifier
+        let payload = Data(tabID.uuidString.utf8)
+        provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .ownProcess) { completion in
+            completion(payload, nil)
+            return nil
+        }
+        return provider
     }
 }
 
