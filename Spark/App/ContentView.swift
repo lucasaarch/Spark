@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 private let ember = Color(red: 1, green: 0.73, blue: 0.42)
 private let canvas = Color(red: 0.055, green: 0.063, blue: 0.078)
@@ -32,7 +33,6 @@ struct ContentView: View {
                 SessionFooter(session: session, workspace: workspace, catalog: catalog)
             }
         }
-        .coordinateSpace(name: "spark-content")
         .background {
             ZStack {
                 VisualEffect()
@@ -109,7 +109,7 @@ struct ContentView: View {
                             SessionTab(
                                 session: session, selected: workspace.selectedTab?.id == tab.id,
                                 paneCount: tab.layout.sessionIDs.count, tabID: tab.id,
-                                paneDrag: workspace.paneDrag,
+                                workspace: workspace, paneDrag: workspace.paneDrag,
                                 select: { workspace.selectTab(tab) }, close: { workspace.closeTab(tab) })
                         }
                     }
@@ -135,6 +135,7 @@ private struct SessionTab: View {
     let selected: Bool
     let paneCount: Int
     let tabID: UUID
+    @ObservedObject var workspace: Workspace
     @ObservedObject var paneDrag: PaneDragState
     @State private var renaming = false
     @State private var newTitle = ""
@@ -203,15 +204,8 @@ private struct SessionTab: View {
         )
         .overlay { AIBorderGlow(isActive: session.agent?.state == .working, cornerRadius: 9) }
         .animation(reduceMotion ? nil : .easeInOut(duration: 0.14), value: paneDrag.tabTargetID)
-        .background {
-            GeometryReader { geometry in
-                let frame = geometry.frame(in: .named("spark-content"))
-                Color.clear
-                    .onAppear { paneDrag.setTabFrame(frame, for: tabID) }
-                    .onChange(of: frame) { _, newFrame in paneDrag.setTabFrame(newFrame, for: tabID) }
-                    .onDisappear { paneDrag.removeTabFrame(for: tabID) }
-            }
-        }
+        .onDrop(of: [PaneDragState.contentType], delegate: TabDropDelegate(
+            tabID: tabID, workspace: workspace, paneDrag: paneDrag))
     }
 
     private var sessionHelp: String {
@@ -222,6 +216,40 @@ private struct SessionTab: View {
     private var selectionLabel: String {
         guard let agent = session.agent else { return "Select \(session.displayTitle)" }
         return "Select \(session.displayTitle), \(agent.provider.name), \(agent.label)"
+    }
+}
+
+private struct TabDropDelegate: DropDelegate {
+    let tabID: UUID
+    let workspace: Workspace
+    let paneDrag: PaneDragState
+
+    func validateDrop(info: DropInfo) -> Bool {
+        guard info.hasItemsConforming(to: [PaneDragState.contentType]),
+            let sourceID = paneDrag.sourceID
+        else { return false }
+        return workspace.canMovePane(sourceID, toTab: tabID)
+    }
+
+    func dropEntered(info: DropInfo) {
+        guard validateDrop(info: info) else { return }
+        paneDrag.showTabTarget(tabID)
+    }
+
+    func dropUpdated(info: DropInfo) -> DropProposal? {
+        guard validateDrop(info: info) else {
+            paneDrag.clearTabTarget(tabID)
+            return DropProposal(operation: .cancel)
+        }
+        paneDrag.showTabTarget(tabID)
+        return DropProposal(operation: .move)
+    }
+
+    func dropExited(info: DropInfo) { paneDrag.clearTabTarget(tabID) }
+
+    func performDrop(info: DropInfo) -> Bool {
+        guard validateDrop(info: info), let sourceID = paneDrag.sourceID else { return false }
+        return workspace.movePane(sourceID, toTab: tabID)
     }
 }
 

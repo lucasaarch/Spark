@@ -371,7 +371,8 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         shouldCascadeWindows = false
         if self.workspace.sessions.isEmpty { self.workspace.add() }
-        window.contentView = WorkspaceContentHost(workspace: self.workspace, catalog: self.catalog)
+        window.contentView = NSHostingView(
+            rootView: ContentView(workspace: self.workspace, catalog: self.catalog))
         // Restore after installing content, and never center over a saved frame.
         if let restoredFrame {
             let frame = NSRectFromString(restoredFrame)
@@ -408,7 +409,7 @@ final class TerminalWindowController: NSWindowController, NSWindowDelegate {
         workspace.window = window
         window.title = "Spark — " + workspace.name
         if workspace.sessions.isEmpty { workspace.add() }
-        window.contentView = WorkspaceContentHost(workspace: workspace, catalog: catalog)
+        window.contentView = NSHostingView(rootView: ContentView(workspace: workspace, catalog: catalog))
         installWorkspace(workspace)
         catalog.save(workspace.snapshot())
         if let frame = workspace.lastWindowFrame {

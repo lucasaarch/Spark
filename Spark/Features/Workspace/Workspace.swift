@@ -9,7 +9,6 @@ final class PaneDragState: ObservableObject {
     @Published private(set) var sourceID: UUID?
     @Published private(set) var preview: PaneDropPreview?
     @Published private(set) var tabTargetID: UUID?
-    private var tabFrames: [UUID: CGRect] = [:]
 
     func begin(_ id: UUID) {
         sourceID = id
@@ -32,15 +31,6 @@ final class PaneDragState: ObservableObject {
         guard id == nil || tabTargetID == id else { return }
         tabTargetID = nil
     }
-
-    func setTabFrame(_ frame: CGRect, for id: UUID) { tabFrames[id] = frame }
-
-    func removeTabFrame(for id: UUID) {
-        tabFrames.removeValue(forKey: id)
-        clearTabTarget(id)
-    }
-
-    func tabID(at point: CGPoint) -> UUID? { tabFrames.first { $0.value.contains(point) }?.key }
 
     func clearPreview(target: UUID? = nil) {
         guard target == nil || preview?.targetID == target else { return }
