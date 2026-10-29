@@ -45,6 +45,19 @@ struct SourceControlPanel: View {
             .padding(14)
             Divider().opacity(0.4)
 
+            if let action = sourceControl.workingAction {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(action).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.white.opacity(0.035))
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel(action)
+            }
+
             if let snapshot = sourceControl.snapshot {
                 snapshotContent(snapshot)
             } else if let error = sourceControl.error {

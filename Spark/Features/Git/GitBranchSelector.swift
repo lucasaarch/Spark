@@ -25,6 +25,7 @@ struct GitBranchSelector: View {
             }
             .buttonStyle(.plain)
             .frame(maxWidth: 170)
+            .fixedSize(horizontal: true, vertical: false)
             .help("Switch Git branch · \(repository.branch)")
             .accessibilityLabel("Branch: \(repository.branch)")
             .popover(isPresented: $isPresented, arrowEdge: .bottom) {

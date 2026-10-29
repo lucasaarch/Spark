@@ -5,7 +5,8 @@ import Combine
 final class GitSourceControlStore: ObservableObject {
     @Published private(set) var repositoryPath: String?
     @Published private(set) var snapshot: GitSourceSnapshot?
-    @Published private(set) var isWorking = false
+    @Published private(set) var workingAction: String?
+    var isWorking: Bool { workingAction != nil }
     @Published private(set) var error: String?
     @Published var reviewedPaths: Set<String> = []
     @Published var selectedReviewPath: String?
@@ -44,17 +45,17 @@ final class GitSourceControlStore: ObservableObject {
 
     func stage(_ filePath: String) async throws {
         guard let root = repositoryPath else { return }
-        try await perform(at: root) { try GitRepository.stage(filePath, at: root) }
+        try await perform(at: root, action: "Staging file…") { try GitRepository.stage(filePath, at: root) }
     }
 
     func stageAll() async throws {
         guard let root = repositoryPath else { return }
-        try await perform(at: root) { try GitRepository.stageAll(at: root) }
+        try await perform(at: root, action: "Staging all changes…") { try GitRepository.stageAll(at: root) }
     }
 
     func unstage(_ file: GitSourceFile) async throws {
         guard let root = repositoryPath else { return }
-        try await perform(at: root) { try GitRepository.unstage(file.path, at: root) }
+        try await perform(at: root, action: "Unstaging file…") { try GitRepository.unstage(file.path, at: root) }
     }
 
     func partialStage(for file: GitSourceFile) async throws -> GitPartialStage {
@@ -66,55 +67,61 @@ final class GitSourceControlStore: ObservableObject {
 
     func stageHunks(_ hunks: [GitPatchHunk], expectedPatch: String, path: String) async throws {
         guard let root = repositoryPath else { return }
-        try await perform(at: root) {
+        try await perform(at: root, action: "Staging selected changes…") {
             try GitRepository.stageHunks(hunks, expectedPatch: expectedPatch, path: path, at: root)
         }
     }
 
     func commit(message: String) async throws {
         guard let root = repositoryPath, let snapshot else { return }
-        try await perform(at: root) { try GitRepository.commit(at: root, message: message, expected: snapshot) }
+        try await perform(at: root, action: "Committing…") {
+            try GitRepository.commit(at: root, message: message, expected: snapshot)
+        }
     }
 
     func stashChanges() async throws {
         guard let root = repositoryPath else { return }
-        try await perform(at: root) { try GitRepository.stashChanges(at: root) }
+        try await perform(at: root, action: "Stashing changes…") { try GitRepository.stashChanges(at: root) }
     }
 
     func applyStash(_ stash: GitStash) async throws {
         guard let root = repositoryPath else { return }
-        try await perform(at: root) { try GitRepository.popStash(stash.id, at: root) }
+        try await perform(at: root, action: "Applying stash…") { try GitRepository.popStash(stash.id, at: root) }
     }
 
     func dropStash(_ stash: GitStash) async throws {
         guard let root = repositoryPath else { return }
-        try await perform(at: root) { try GitRepository.dropStash(stash.id, at: root) }
+        try await perform(at: root, action: "Dropping stash…") { try GitRepository.dropStash(stash.id, at: root) }
     }
 
     func fetch() async throws {
         guard let root = repositoryPath else { return }
-        try await perform(at: root) { try GitRepository.fetch(at: root) }
+        try await perform(at: root, action: "Fetching…") { try GitRepository.fetch(at: root) }
     }
 
     func pull() async throws {
         guard let root = repositoryPath else { return }
-        try await perform(at: root) { try GitRepository.pull(at: root) }
+        try await perform(at: root, action: "Pulling…") { try GitRepository.pull(at: root) }
     }
 
     func push() async throws {
         guard let root = repositoryPath else { return }
-        try await perform(at: root) { try GitRepository.push(at: root) }
+        try await perform(at: root, action: "Pushing…") { try GitRepository.push(at: root) }
     }
 
     func publishBranch(to remote: String) async throws {
         guard let root = repositoryPath else { return }
-        try await perform(at: root) { try GitRepository.publishBranch(to: remote, at: root) }
+        try await perform(at: root, action: "Publishing branch…") {
+            try GitRepository.publishBranch(to: remote, at: root)
+        }
     }
 
-    private func perform(at path: String, operation: @escaping @Sendable () throws -> Void) async throws {
+    private func perform(
+        at path: String, action: String, operation: @escaping @Sendable () throws -> Void
+    ) async throws {
         guard !isWorking else { return }
-        isWorking = true
-        defer { isWorking = false }
+        workingAction = action
+        defer { workingAction = nil }
         let updated = try await Task.detached(priority: .userInitiated) {
             try operation()
             return try GitRepository.sourceControl(at: path)
